@@ -109,15 +109,24 @@ feat(infra): Day 1 — kafka kraft + lakekeeper + minio + healthcheck
 
 ### 본문
 
-`.github/PULL_REQUEST_TEMPLATE.md` 사용. 핵심 섹션 (모두 한글 소제목):
+`.github/PULL_REQUEST_TEMPLATE.md` 사용. 핵심 섹션 (모두 한글 소제목, bullet 우선):
 
-1. **요약** — 무엇을 / 왜 (bullet 으로 가독성 우선)
-2. **Day 종료 게이트** — plan 종료 게이트 체크리스트
-3. **변경 사항** — bullet
-4. **검증** — 명령 + 출력
-5. **계획 대비 편차** — plan 본문과 달라진 부분 + 이유
-6. **리스크 / 롤백**
-7. **체크리스트** — secrets / tests / docs / backward compat
+1. **요약** — 이번 PR 이 무엇을 / 왜 했는지 한눈에. bullet 으로.
+2. **배경** — 이 PR 이 필요했던 맥락. 어떤 문제를 풀거나 어떤 단계를 진행하는지. plan 의 어느 Task 에 해당하는지.
+3. **기대효과** — 이 PR 이 머지된 후 가능해지는 것. 다음 Day 가 무엇을 전제로 시작할 수 있는지. SLO / 비용 / 운영 측면 영향.
+4. **Day X 완료 기준** — plan §6-1 의 해당 Day 종료 게이트 체크리스트.
+5. **변경 사항** — 파일 단위 narrative. bullet.
+6. **검증** — 어떻게 확인했는지. 명령 + 출력 발췌.
+7. **원안에서 달라진 점** — plan 본문과 실제 구현이 달라진 부분 + 이유. 표 안의 셀이 길어지면 bullet 으로.
+8. **트러블슈팅** — 큰 이슈는 별도 문서로 archive 하고 여기엔 link.
+9. **리스크 / 롤백** — 데이터 손실 가능성 / 마이그레이션 / 후속 작업 영향.
+10. **체크리스트** — secrets / tests / docs / backward compat / commit 컨벤션 / PR 크기.
+11. **참고** — plan / spec / 이전 PR / 관련 문서 link.
+
+원칙:
+- 영어 소제목 / 영어 narrative 금지 — type / scope / 영문 식별자 / 코드 주석은 별개.
+- PR description 안의 코드 블록 안 주석은 한국어로.
+- 표 셀이 두 줄 넘게 길어지면 셀 안에서 bullet (`-`) 으로 쪼개기.
 
 ### 크기 가이드
 
