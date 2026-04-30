@@ -1,0 +1,57 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Superpowers (brainstorm sessions, visual companion, etc.)
+.superpowers/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+.pnpm-store/
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+vapid-keys.json
+*-keys.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# dbt
+target/
+dbt_packages/
+
+# Local data / scratch
+*.local
+scratch/
+tmp/
