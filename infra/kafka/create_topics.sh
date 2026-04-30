@@ -7,7 +7,7 @@ create_topic() {
   local name=$1
   local partitions=$2
   local retention_ms=$3
-  if $KCMD --list | grep -q "^${name}$"; then
+  if $KCMD --list | grep -Fxq -- "${name}"; then
     echo "topic ${name} already exists, skipping"
     return
   fi
