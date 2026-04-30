@@ -127,7 +127,8 @@
 - **Replay 가능**: Iceberg 적재 실패 시 Flink job 재실행으로 Bronze 재구성
 - **Flink + Kafka exactly-once**: streaming 정합성의 표준
 - **단일 노드 + KRaft**: ZooKeeper 불필요, 메모리 절감, 1인 운영
-- **솔직한 카운터 응답**: "Phase 1A 단독이라면 Polling + Postgres로도 충분했지만, Phase 1B에서 토픽 4종 + 컨슈머 2개로 확장하면서 메시지 버스로 통합하는 게 합리적이 됐습니다. 단일 토픽이었으면 Kafka 안 썼을 겁니다."
+- **single-node 결정 사유 (3-node 안 쓴 이유)**: 1번 포트폴리오에서 Kafka 3-node + Connect 2-node를 EC2 위에 운영해 production-like cluster 경험을 이미 했음. 본 프로젝트는 Oracle Cloud Free Tier 24GB + 1인 운영 + **Day 9 Spark batch 일시 기동 시 OOM 위험**을 회피하기 위해 의식적으로 single-node 채택. 데이터 손실 허용도 측면에서도 공공 API는 5분 polling 자연 복구 + CDC는 Debezium offset 보장 → HA 비즈니스 정당화 약함. **SPOF는 limitation으로 솔직히 인정.** Production SLA 환경이라면 3-node + RF=3 + ISR=2 가 맞음.
+- **솔직한 카운터 응답 (Kafka 자체 정당화)**: "Phase 1A 단독이라면 Polling + Postgres로도 충분했지만, Phase 1B에서 토픽 4종 + 컨슈머 2개로 확장하면서 메시지 버스로 통합하는 게 합리적이 됐습니다. 단일 토픽이었으면 Kafka 안 썼을 겁니다."
 
 ### 5-2. PyFlink — 메인 스트리밍 엔진
 
@@ -265,6 +266,7 @@ Cloudflare Pages Functions / Workers는 TCP 직접 연결이 제한적이므로,
 | "왜 Flink인가요? Spark Structured Streaming은요?" | 1번에서 Spark batch를 익혔고, streaming은 새로 배우는 게 학습 곡선상 자연스러움. 신입 풀에서 Flink는 희소. |
 | "Spark는 왜 또 끼어 있나요?" | 1번에서 익힌 도구로 1번의 미해결 이슈를 해결한 일관성. **엔진을 용도별로 분리** (streaming = Flink, batch = Spark). |
 | "Kafka 정말 필요했나요?" | Phase 1A 단독이면 Polling + Postgres로도 가능했음. **이종 소스 4종 통합 + 컨슈머 2개 (Flink + Cron) + 학습 목표** 가 정당화 사유. **단일 토픽이었으면 안 썼을 겁니다.** |
+| "왜 3-node 가 아닌 single-node 인가요?" | 1번에서 Kafka 3-node + Connect 2-node를 EC2 위에 운영해봤음. 본 프로젝트는 Oracle Cloud 24GB + 1인 운영 + Spark batch 일시 기동을 고려했을 때 3-node 면 Day 9 OOM 위험. 데이터 손실 허용도도 공공 API 5분 polling 자연 복구 + CDC Debezium offset 보장으로 HA 비즈니스 정당화 약함. **KRaft single-node 로 의식적 단순화 + SPOF 는 limitation 으로 인정.** Production SLA 였다면 3-node + RF=3 + ISR=2. |
 | "비용은요?" | 월 $0~$2. 1번의 75% 절감 서사의 연속. |
 | "실데이터 다뤄봤나요?" | Phase 1B 익명 실서비스의 행동 로그. **본인이 그 데이터의 producer + consumer.** |
 | "Claude Code 활용은?" | 도구로서 적극 활용하되, 의사결정·아키텍처·SLO 정의·trade-off 분석은 본인이 주도. 브레인스토밍 시점부터 본인 판단 명시. |
