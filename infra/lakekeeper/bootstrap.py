@@ -40,7 +40,9 @@ def ensure_server_bootstrapped(client: httpx.Client) -> None:
     # v0.5.x returns 400 with type "CatalogAlreadyBootstrapped" when already done
     if r.status_code in (400, 409):
         body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        if "already" in body.get("error", {}).get("type", "").lower() or r.status_code == 409:
+        error_block = body.get("error")
+        error_type = error_block.get("type", "") if isinstance(error_block, dict) else ""
+        if "already" in error_type.lower() or r.status_code == 409:
             return  # already bootstrapped — idempotent
     if r.status_code >= 400:
         print(f"bootstrap failed: {r.status_code} {r.text}", file=sys.stderr)
