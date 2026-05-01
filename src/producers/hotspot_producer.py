@@ -100,35 +100,43 @@ def run(area_codes: dict[str, str]) -> None:
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
 
-    with httpx.Client() as client:
-        while not stop["flag"]:
-            cycle_start = time.monotonic()
-            for code, name in area_codes.items():
-                try:
-                    payload = fetch_hotspot(client, s.seoul_openapi_key, name)
-                except Exception as e:
-                    log.warning("fetch_failed", area=name, error=str(e))
-                    continue
-                event = parse_hotspot_payload(payload, area_code=code)
-                if event is None:
-                    log.warning("parse_returned_none", area=name)
-                    continue
-                produce_json(
-                    producer,
-                    topic=TOPIC,
-                    key=event.kafka_key(),
-                    value=event.model_dump(mode="json"),
-                    headers=event.kafka_headers(),
-                )
-                log.info("produced", topic=TOPIC, area=name, congest=event.congest_level)
-            producer.flush(timeout=10)
+    try:
+        with httpx.Client() as client:
+            while not stop["flag"]:
+                cycle_start = time.monotonic()
+                for code, name in area_codes.items():
+                    try:
+                        payload = fetch_hotspot(client, s.seoul_openapi_key, name)
+                    except httpx.HTTPStatusError as e:
+                        # API 키가 URL 경로에 평문으로 박히므로 str(e) / URL 노출 금지
+                        log.warning("fetch_failed_http", area=name, status=e.response.status_code)
+                        continue
+                    except Exception as e:
+                        log.warning("fetch_failed", area=name, error=type(e).__name__)
+                        continue
+                    event = parse_hotspot_payload(payload, area_code=code)
+                    if event is None:
+                        log.warning("parse_returned_none", area=name)
+                        continue
+                    produce_json(
+                        producer,
+                        topic=TOPIC,
+                        key=event.kafka_key(),
+                        value=event.model_dump(mode="json"),
+                        headers=event.kafka_headers(),
+                    )
+                    log.info("produced", topic=TOPIC, area=name, congest=event.congest_level)
+                producer.flush(timeout=10)
 
-            elapsed = time.monotonic() - cycle_start
-            sleep_for = max(0, s.hotspot_poll_interval_sec - elapsed)
-            for _ in range(int(sleep_for)):
-                if stop["flag"]:
-                    break
-                time.sleep(1)
+                elapsed = time.monotonic() - cycle_start
+                sleep_for = max(0, s.hotspot_poll_interval_sec - elapsed)
+                for _ in range(int(sleep_for)):
+                    if stop["flag"]:
+                        break
+                    time.sleep(1)
+    finally:
+        # 예외 / 정상 종료 모두 flush 보장. confluent_kafka.Producer 는 close() 없음 — flush 로 충분
+        producer.flush(timeout=10)
 
 
 if __name__ == "__main__":
