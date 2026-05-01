@@ -747,7 +747,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "confluent-kafka>=2.5",
-    "tenacity>=9.0",
+    "tenacity>=8.2",
     "python-dotenv>=1.0",
     "structlog>=24.1",
     "duckdb>=1.1",
@@ -789,6 +789,8 @@ testpaths = ["tests"]
 addopts = "-ra -q"
 pythonpath = ["src"]
 ```
+
+> **버전 메모 (Day 2 구현 시 발견)**: `tenacity>=8.2` 는 `pyiceberg 0.7.x` 의 `tenacity<9.0` 제약을 반영한 값. `flink` extra 의 `apache-flink==1.20.0` 이 `apache-beam<2.49` → `pyarrow<12` 를 끌어와 `pyiceberg>=0.8` (`pyarrow>=14`) 와 동시 resolve 불가 → `pyiceberg 0.7.x` 가 고정되고 그 결과 `tenacity<9` 가 강제됨. retry API 는 8.x / 9.x 동일이라 코드 영향 없음.
 
 - [ ] **Step 2: src/platform_common/__init__.py 작성**
 
