@@ -1953,9 +1953,11 @@ git commit -m "feat: /chill page listing chill + open-now places"
 
 ---
 
-## Day 9 — Spark MERGE INTO 멱등성 + Compaction (1번 미해결 closure)
+## Day 9 — Spark MERGE INTO 멱등성 + Compaction + Airflow `iceberg_maintenance` 본격 운영 (1번 미해결 closure)
 
-**Day 9 목표 (spec §6-1):** **Spark batch** 컨테이너를 일시 기동하고, Iceberg `silver.dim_place` 의 SCD2 골격을 `gold.dim_place` 로 **MERGE INTO** 해 멱등성 검증, `silver.hotspot_congestion` 에 `rewrite_data_files` 로 Compaction 적용. spec §8-1 의 차별화 메시지 #2 ("미해결 closure") 의 핵심 산출물.
+**Day 9 목표 (spec §6-1, §5-8):** **Spark batch** 컨테이너를 일시 기동하고, Iceberg `silver.dim_place` 의 SCD2 골격을 `gold.dim_place` 로 **MERGE INTO** 해 멱등성 검증, `silver.hotspot_congestion` 에 `rewrite_data_files` 로 Compaction 적용. **Day 5 buffer 에 골격만 박아둔 `iceberg_maintenance` DAG 의 본문을 채워 본격 운영** — Spark MERGE INTO + Compaction job 을 Airflow DAG 의 SparkSubmitOperator 로 호출, before/after 메트릭을 XCom 으로 전달, on_success_callback 으로 Discord 보고. spec §8-1 의 차별화 메시지 #2 ("미해결 closure") + #4 ("Airflow 본진 사용") 의 동시 산출물.
+
+**메모리 운영 원칙 (spec §9-3):** Day 9 Spark 기동 직전 `docker compose stop airflow-scheduler` 로 700MB 회수 (Spark job 완료 후 재기동). Spark 동시 submit 은 `max_active_tis_per_dag=3` 로 제한.
 
 ### Task 9.1: Spark profile 추가 (docker-compose --profile spark)
 
@@ -2221,14 +2223,22 @@ git commit -m "feat: spark merge into idempotency check for gold.dim_place"
 
 ---
 
-### Task 9.3: `rewrite_data_files` Compaction + 비용 측정
+### Task 9.3: `rewrite_data_files` Compaction + 비용 측정 + Airflow `iceberg_maintenance` DAG 본문 채움
 
 **Files:**
 - Create: `infra/spark/jobs/compaction_silver.py`
 - Create: `infra/spark/jobs/cost_report.py`
 - Create: `docs/runbook/day9_spark.md`
+- **Modify: `airflow/dags/iceberg_maintenance.py`** — Day 5 buffer 에 박아둔 BashOperator placeholder 들을 **SparkSubmitOperator** 로 교체. XCom push (before/after metric) + on_success_callback (Discord 압축률 보고) 활성화.
+- **Modify: `tests/unit/airflow/test_iceberg_maintenance_dag.py`** — SparkSubmitOperator 사용 검증 추가, BashOperator placeholder 제거 검증.
 
-**근거:** spec §8-1 #2 — 1번 페이지 11의 "Compaction 도입 **예정**" closure. before/after 파일 수 + 평균 크기 + 쿼리 시간을 기록.
+**근거:** spec §8-1 #2 — 1번 페이지 11의 "Compaction 도입 **예정**" closure. before/after 파일 수 + 평균 크기 + 쿼리 시간을 기록. **spec §5-8 표 2행 — Airflow 본진 4 DAG 중 `iceberg_maintenance` 의 본격 운영 시점. 병렬 실행 + max_active_tis_per_dag=3 + XCom 메트릭 비교 + on_success_callback 자동 보고.**
+
+**Airflow `iceberg_maintenance` DAG 통합 메모 (Day 9 신규):**
+- Day 5 Task 5.8 에서 박은 BashOperator placeholder 3개 (`rewrite_fact_hotspot_congestion_5min`, `rewrite_dim_place`, `rewrite_fact_user_event` — P1B 후 활성화) → SparkSubmitOperator 로 교체. `application` 인자에 `infra/spark/jobs/compaction_silver.py` 경로.
+- before/after metric (Step 1 코드의 `file_count()` 함수 결과) → XCom push → `post_compaction_report` task 가 XCom pull 하여 Discord 메시지 생성: "오늘 compaction: N개 → M개 (X% 감소), Y MB freed".
+- Day 9 작업 종료 시점에 DAG unpause + 다음 새벽 03:00 KST 자동 실행 확인. **Spark 동시 submit 은 `max_active_tis_per_dag=3`** — Spark driver 1GB × 3 = 3GB → 24GB 안에 안전 마진.
+- **Day 9 작업 시작 직전 `docker compose stop airflow-scheduler` 로 700MB 회수** (Day 9 Spark 일시 기동 OOM 방지). 작업 종료 후 `docker compose start airflow-scheduler`. Day 5 종료 게이트의 `free -h` 80% 임계 (19.2GB) 안 검증 재실행.
 
 - [ ] **Step 1: jobs/compaction_silver.py**
 
@@ -2410,9 +2420,11 @@ git commit -m "feat: iceberg compaction + cost report (1번 closure 증거)"
 
 ---
 
-## Day 10 — 아키텍처 다이어그램 + README + 포트폴리오 1차 작성
+## Day 10 — 아키텍처 다이어그램 + README + 포트폴리오 1차 작성 + `slo_daily_report` DAG
 
-**Day 10 목표 (spec §6-1):** 모든 산출물을 정리해 **Phase 1A 단독 5~6페이지 포트폴리오** 1차 제출본을 작성. spec §6-3 의 6개 페이지 구조를 따른다. **체크포인트 1 = 본 plan 의 종료점**.
+**Day 10 목표 (spec §6-1, §5-8):** 모든 산출물을 정리해 **Phase 1A 단독 6~7페이지 포트폴리오** 1차 제출본을 작성 (Airflow 본진 4 DAG 페이지 포함). spec §6-3 의 7개 페이지 구조를 따른다. 추가로 **`slo_daily_report` DAG** (BranchPythonOperator) 를 작성해 spec §5-8 표 4행을 채우고 본진 4 DAG 라인업을 완성. **체크포인트 1 = 본 plan 의 종료점**.
+
+**Task 작업 순서 정당화:** 10.1 다이어그램 → 10.2 포트폴리오 → 10.3 README → 10.4 `slo_daily_report` DAG. **DAG 를 마지막에 배치한 사유**: 다음 날 09:00 KST 자동 실행으로 Day 10 종료 시점에 매뉴얼 trigger 1회만 검증하면 충분 (실 데이터 P95 산출은 다음 날 자연 진행). 포트폴리오/README 안의 SLO 숫자는 Day 4 의 `flink_jobs.slo_metrics` 출력 + Day 10 `slo_daily_report` DAG 1회 trigger 결과를 함께 사용.
 
 ### Task 10.1: 아키텍처 다이어그램 + 데이터 lineage (mermaid)
 
@@ -2532,12 +2544,27 @@ git commit -m "docs: architecture + data lineage diagrams (mermaid)"
 
 ---
 
-### Task 10.2: 포트폴리오 1차 (Phase 1A 단독, 5~6페이지)
+### Task 10.2: 포트폴리오 1차 (Phase 1A 단독, 6~7페이지 — Airflow 페이지 포함)
 
 **Files:**
 - Create: `docs/portfolio/phase1a_v1.md`
 
-**근거:** spec §6-3 6 페이지 구조 그대로. spec §11 차별화 표 + §12 면접 카운터 응답 근거.
+**근거:** spec §6-3 7 페이지 구조 그대로 (p6 = Airflow 본진 사용 신설). spec §11 차별화 표 + §12 면접 카운터 응답 근거.
+
+**Airflow 반영 변경 사항 (Day 5 spec 갱신 후 추가):**
+- **p2 아키텍처**: mermaid 다이어그램에 **Airflow 박스 + 3계층 분리 화살표** (streaming = Flink / polling = cron / batch ops = Airflow) 추가.
+- **p3 차별화 표**: "**워크플로우 사용 패턴**" 행 신규 — `1번 = Airflow 15분 batch trigger (cron 대용)` vs `본 프로젝트 = Airflow 본진 4 DAG (TaskGroup / SLA / dynamic task mapping / Branch / XCom / on_failure_callback)`.
+- **p6 신설 (기존 p6 운영 비용은 p7 로 밀림)**: **Airflow 본진 4 DAG 운영** 페이지.
+  - `dbt_full_run` — TaskGroup + 의존성 + SLA (Day 5)
+  - `iceberg_maintenance` — 병렬 Spark + XCom + on_success_callback (Day 9 본격)
+  - `backfill_silver_from_bronze` — Dynamic Task Mapping + 멱등 MERGE INTO (Day 5~6 buffer)
+  - `slo_daily_report` — BranchPythonOperator (Day 10 본 task 10.4)
+  - **메모리 mitigation 사례**: Day 9 Spark 기동 직전 `airflow-scheduler` 일시 stop, 야간 실행 schedule, LocalExecutor + SQLite metadata
+  - **3계층 분리 원칙**: streaming = Flink, polling = cron, batch ops = Airflow
+- **p7 운영 비용 + 로드맵**: 기존 p6 그대로, 단 Phase 2 로드맵에 "Dagster 검토 (dbt asset 일등시민)" 한 줄 추가.
+- **면접 카운터 답변 +3종 추가**: "Airflow 또 쓰셨네요?" / "왜 Dagster/Prefect 안 쓰셨어요?" / "왜 batch ops 만 Airflow 인가요?" — spec §8-2 답변 그대로 인용.
+
+> **상세 implementation step (mermaid 다이어그램 수정 본문, p3 표 1행 수정 SQL, p6 본문 작성, 면접 카운터 답변 본문) 은 Day 9 종료 시점 plan-update commit 으로 작성 — Day 9 의 `iceberg_maintenance` DAG 본격 운영 결과 (실측 압축률, before/after 메트릭) 를 p6 에 함께 박을 수 있게 됨.**
 
 - [ ] **Step 1: phase1a_v1.md 작성**
 
@@ -2730,25 +2757,85 @@ git commit -m "docs: phase1a v1 portfolio (5~6p, day 10 checkpoint)"
 
 ---
 
-### Task 10.3: README 전면 갱신 + 최종 게이트 검증
+### Task 10.3: `slo_daily_report` DAG — BranchPythonOperator (Airflow 본진 4 DAG 라인업 완성)
+
+**Files:**
+- Create: `airflow/dags/slo_daily_report.py`
+- Create: `airflow/dags/common/slo_query.py` — DuckDB 로 Iceberg `gold.fact_hotspot_congestion_5min` 의 freshness 메트릭 집계 (`api_response_ts` → `gold_arrival_ts` 차이의 percentile_cont)
+- Create: `tests/unit/airflow/test_slo_daily_report_dag.py` — DAG 파싱 / branch 분기 동작 / XCom 흐름 검증
+- Modify: `airflow/dags/common/callbacks.py` — `send_slo_alert(p95_seconds, threshold_seconds, report_url)` Discord webhook helper 추가
+- (Phase 2 대비) Iceberg 테이블 `archive.fact_slo_daily` DDL 메모만 작성, 본격 적재는 Phase 2
+
+**Goal:** `airflow dags trigger slo_daily_report` 으로 어제 하루의 데이터 신선도 P95 측정 → P95 > 7분(420s) 이면 `send_slo_alert` 분기, 아니면 `skip_alert` 분기. 정상 일자엔 noise 0. 다음 날 09:00 KST 자동 실행 확인.
+
+**본진 기능 발휘 (spec §5-8 표 4행):**
+- **BranchPythonOperator**: `branch_on_slo_violation` 이 XCom 의 `p95_seconds` 를 읽어 `"send_alert"` 또는 `"skip_alert"` task_id 반환 → Airflow 가 자동으로 한쪽만 실행
+- **XCom 흐름**: `collect_freshness_metrics` (push: `{p50, p95, p99, samples}`) → `generate_report` (pull → Jinja template → markdown) → `branch_on_slo_violation` (pull → 분기) → `send_alert` (pull → Discord 메시지에 메트릭 포함)
+- **on_failure_callback**: 리포트 생성 자체 실패도 Discord alert (silent failure 방지)
+- **시계열 archive**: `fact_slo_daily` 테이블이 그 자체로 SLO 추세 데이터셋 (Phase 2 에서 Superset 대시보드 source)
+- schedule: `"0 9 * * *"` (매일 09:00 KST, 어제 하루 집계)
+
+**Task 그래프 (spec §5-8 의 시각화 그대로):**
+```
+collect_freshness_metrics      (DuckDB query → XCom push: {p50, p95, p99, samples})
+└─ generate_report             (Jinja template → markdown 파일)
+   └─ branch_on_slo_violation  ← ★ BranchPythonOperator
+      ├─ if p95 > 420s: → send_alert  (Discord webhook + 메트릭 + 어제 그래프 링크)
+      └─ else:           → skip_alert (DummyOperator)
+└─ archive_report              (Phase 2: fact_slo_daily 적재. Phase 1A 는 markdown 파일만 보관)
+```
+
+**TDD 단계 (pure DAG 파싱 + branch 분기 검증):**
+- Step 1: 실패 테스트 작성
+  - `test_dag_loads()` — DAG 파싱 OK
+  - `test_branch_returns_send_alert_when_p95_above_threshold()` — XCom mock 으로 p95=500 → `"send_alert"` 반환
+  - `test_branch_returns_skip_alert_when_p95_below_threshold()` — p95=300 → `"skip_alert"` 반환
+  - `test_xcom_keys_consistent()` — `collect_freshness_metrics` 의 push key 가 `branch_on_slo_violation` 의 pull key 와 일치
+- Step 2: 테스트 fail 확인 (pytest)
+- Step 3: DAG 본문 + `slo_query.py` + `callbacks.send_slo_alert` 작성 (위 본진 기능 모두 발휘)
+- Step 4: 테스트 PASS 확인 (`pytest tests/unit/airflow/test_slo_daily_report_dag.py -v`)
+- Step 5: Airflow UI 에서 DAG 보임 + manual trigger 1회 실행 (실 데이터 P95 산출). p95 < 420 이면 `skip_alert` 분기, > 420 이면 `send_alert` 분기 동작 시각 확인 (Graph view 색상)
+- Step 6: 다음 날 09:00 KST 자동 실행 확인 (Day 11 시작 시 first run 결과 점검 — Phase 1B Week 3 plan 시작 시점에 함께 확인)
+- Step 7: Commit
+
+**검증 명령:**
+- `pytest tests/unit/airflow/test_slo_daily_report_dag.py -v` → 4 PASS
+- `airflow dags list | grep slo_daily_report` → 보임
+- `airflow dags test slo_daily_report $(date +%Y-%m-%d)` → end-to-end 1회 성공, branch 분기 동작 시각 확인
+- Airflow UI > Graph view 에서 한쪽 분기만 색칠된 것 확인 (P95 측정값에 따라 send_alert 또는 skip_alert)
+- Discord 채널 (또는 dry-run mode) 에서 메시지 수신 확인 (P95 위반 시에만)
+
+**spec §5-8 본진 4 DAG 라인업 완성 메모:**
+- ✅ Day 5 — `dbt_full_run` (TaskGroup + 의존성 + SLA + on_failure_callback)
+- ✅ Day 5~6 buffer — `backfill_silver_from_bronze` (Dynamic Task Mapping + 멱등 MERGE INTO)
+- ✅ Day 5~6 buffer 골격 → Day 9 본격 — `iceberg_maintenance` (병렬 Spark + XCom + on_success_callback)
+- ✅ **Day 10 = 본 task — `slo_daily_report` (BranchPythonOperator + XCom + on_failure_callback)**
+- → spec §5-8 의 "본진 기능 12개 발휘" 라인업 완성. 면접 답변 (spec §8-2 "Airflow 또 쓰셨네요?") 의 4개 DAG 모두 작동.
+
+> **상세 implementation step (DuckDB freshness 쿼리 SQL, Jinja template 본문, BranchPythonOperator callable 함수, Discord webhook payload 형식) 은 Day 9 종료 시점 plan-update commit 으로 작성. `iceberg_maintenance` 본격 운영 결과 (실측 P95 분포) 가 첫 trigger 시 입력으로 사용됨.**
+
+---
+
+### Task 10.4: README 전면 갱신 + 최종 게이트 검증
 
 **Files:**
 - Modify: `README.md`
 
-**근거:** Phase 1A 단독 제출 시 GitHub repo 의 README 가 1차 첫인상.
+**근거:** Phase 1A 단독 제출 시 GitHub repo 의 README 가 1차 첫인상. Task 10.3 의 `slo_daily_report` DAG 작성 후 Airflow 본진 4 DAG 라인업이 완성된 상태에서 README 갱신.
 
 - [ ] **Step 1: README.md 전면 재작성**
 
 ```markdown
 # Seoul Citydata Platform
 
-서울 공공 실시간 데이터(도시데이터·지하철 혼잡도) + Postgres CDC + (Phase 1B) 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions** 로 처리·검증하는 1인 운영 데이터 플랫폼.
+서울 공공 실시간 데이터(도시데이터·지하철 혼잡도) + Postgres CDC + (Phase 1B) 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리·검증하는 1인 운영 데이터 플랫폼.
 
 - 공개 데모: https://seoul-citydata.pages.dev
-- Phase 1A 포트폴리오 (5~6p): [`docs/portfolio/phase1a_v1.md`](./docs/portfolio/phase1a_v1.md)
+- Phase 1A 포트폴리오 (6~7p, Airflow 페이지 포함): [`docs/portfolio/phase1a_v1.md`](./docs/portfolio/phase1a_v1.md)
 - 시스템 다이어그램: [`docs/architecture/system_diagram.md`](./docs/architecture/system_diagram.md)
 - 데이터 신선도 SLO: **p95 < 7분**
 - 운영 비용: **월 $0~$0.83**
+- **Airflow 본진 4 DAG**: `dbt_full_run`, `iceberg_maintenance`, `backfill_silver_from_bronze`, `slo_daily_report` — streaming 은 Flink, batch ops 만 Airflow (3계층 분리)
 
 ## 빠른 시작
 
@@ -2784,13 +2871,21 @@ uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 uv run python scripts/load_static_places.py
 cd dbt/seoul && DBT_PROFILES_DIR=$(pwd) uv run --project ../.. dbt run && dbt test && cd ../..
 
-# 7) Day 9 Spark (일시 기동)
+# 7) Day 9 Spark (일시 기동) — airflow-scheduler 일시 stop 후 진행
+docker compose stop airflow-scheduler   # 700MB 회수 (Day 9 OOM 방지)
 docker compose --profile spark up -d spark
 docker compose exec -T spark /opt/spark/bin/spark-submit /workspace/jobs/merge_dim_place.py
 docker compose exec -T spark /opt/spark/bin/spark-submit /workspace/jobs/compaction_silver.py
 docker compose --profile spark down
+docker compose start airflow-scheduler  # 작업 종료 후 재기동
+# 또는 airflow `iceberg_maintenance` DAG manual trigger 로 위 두 spark-submit 자동화 가능
+# (Day 9 종료 시점부터 매일 새벽 03:00 KST 자동 실행)
 
-# 8) Web (Next.js)
+# 8) Airflow 본진 4 DAG (Day 5 시작, Day 10 까지 라인업 완성)
+docker compose up -d airflow-webserver airflow-scheduler   # http://localhost:8080
+# UI 에서 dbt_full_run / iceberg_maintenance / backfill_silver_from_bronze / slo_daily_report 활성화
+
+# 9) Web (Next.js)
 cd web && pnpm install && pnpm dev
 ```
 
@@ -2812,6 +2907,7 @@ uv run python -m flink_jobs.slo_metrics
 | `src/api/` | FastAPI 백엔드 |
 | `web/` | Next.js + Leaflet 프론트 |
 | `dbt/seoul/` | dbt-core 프로젝트 (Silver→Gold mart) |
+| `airflow/dags/` | Airflow 본진 4 DAG (`dbt_full_run`, `iceberg_maintenance`, `backfill_silver_from_bronze`, `slo_daily_report`) + `common/` (callbacks, slo_query, spark_submit) |
 | `infra/` | docker, kafka topics, debezium, spark, lakekeeper, cloudflare |
 | `docs/` | spec / plan / architecture / portfolio / runbook |
 | `scripts/` | healthcheck, memory_watch, duckdb_check, load_static_places |
@@ -2884,13 +2980,16 @@ git push origin main --tags
 GitHub Actions 두 잡 (`python` + `dbt`) green 확인.
 
 **Day 10 종료 게이트 (= Phase 1A 종료 = 체크포인트 1):**
-- README, 다이어그램, 포트폴리오 v1, 모든 runbook 작성 완료
+- README, 다이어그램, 포트폴리오 v1 (6~7p, Airflow 페이지 포함), 모든 runbook 작성 완료
 - 위 Step 2 의 모든 명령이 expected 출력
+- **Airflow 본진 4 DAG 라인업 완성**: `dbt_full_run` / `iceberg_maintenance` / `backfill_silver_from_bronze` / `slo_daily_report` 모두 등록 + manual trigger 1회 성공
+- **`slo_daily_report` 1회 trigger → branch 분기 동작 시각 확인 (send_alert 또는 skip_alert)**
+- `free -h` 80% 임계 (19.2GB) 안 + `docker stats airflow-*` RES 합계 < 1GB
 - `phase-1a-v1` git tag 푸시
 - GitHub Actions green
 - 공개 도메인 + `/chill` 접속 가능
 
-이 시점에 Phase 1A 단독 5~6페이지 포트폴리오 제출 가능. **Phase 1B (Week 3 plan, Day 11~14) 진입 가능**.
+이 시점에 Phase 1A 단독 6~7페이지 포트폴리오 제출 가능 (Airflow 본진 사용 페이지 포함). **Phase 1B (Week 3 plan, Day 11~14) 진입 가능**.
 
 ---
 
@@ -2903,14 +3002,16 @@ GitHub Actions 두 잡 (`python` + `dbt`) green 확인.
 | Day 6 — Postgres + Debezium, `place.master.cdc.v1` → PyFlink → `dim_place` SCD2 골격 | Task 6.1 (Connect+Debezium), 6.2 (Postgres seed + connector 등록), 6.3 (PyFlink CDC consumer + SCD2 pure func), 6.4 (dbt mart + runbook) |
 | Day 7 — Next.js + Mapbox/Leaflet 핫스팟 색상, Cloudflare Pages 배포 | Task 7.1 (Next.js 골격), 7.2 (FastAPI backend), 7.3 (지도 페이지), 7.4 (Cloudflare Tunnel + Pages 가이드) |
 | Day 8 — "지금 한가하고 영업 중인 카페" 데모 1개 | Task 8.1 (정적 places 적재), 8.2 (dbt mart + API + pure 함수 TDD), 8.3 (`/chill` 페이지) |
-| Day 9 — Spark MERGE INTO 멱등성 + `rewrite_data_files` Compaction + 비용 | Task 9.1 (Spark profile), 9.2 (MERGE 멱등성), 9.3 (Compaction + cost report + runbook) |
-| Day 10 — 다이어그램 + README + 포트폴리오 1차 (5~6p) | Task 10.1 (mermaid 다이어그램), 10.2 (포트폴리오 6페이지 구조 그대로), 10.3 (README + 종료 게이트) |
-| §6-3 페이지 1~6 구조 | Task 10.2 의 phase1a_v1.md 가 동일 구조 |
-| §8-1 차별화 메시지 3종 | 포트폴리오 p3 (#1, #3) + p5 (#2) |
-| §8-2 면접 카운터 응답 | 포트폴리오 끝 표 |
+| Day 9 — Spark MERGE INTO 멱등성 + `rewrite_data_files` Compaction + 비용 + **Airflow `iceberg_maintenance` 본격 운영** | Task 9.1 (Spark profile), 9.2 (MERGE 멱등성), **9.3 (Compaction + cost report + runbook + `iceberg_maintenance` DAG 본문 채움 — SparkSubmitOperator + XCom + on_success_callback)** |
+| Day 10 — 다이어그램 + README + 포트폴리오 1차 (6~7p, Airflow 페이지) + **`slo_daily_report` DAG** | Task 10.1 (mermaid 다이어그램), 10.2 (포트폴리오 7페이지 구조 + Airflow 반영), **10.3 (`slo_daily_report` DAG, BranchPythonOperator + XCom + on_failure_callback — Airflow 본진 4 DAG 라인업 완성)**, 10.4 (README + 종료 게이트, 구 10.3) |
+| §5-8 — Airflow 본진 4 DAG (Day 5~10) | Week 1 Task 5.5/5.6/5.7/5.8 (셋업 + dbt_full_run + backfill + iceberg_maintenance 골격), **Week 2 Task 9.3 (iceberg_maintenance 본격 운영) + Task 10.3 (slo_daily_report)** |
+| §6-3 페이지 1~7 구조 (p6 = Airflow 본진 사용 신설) | Task 10.2 의 phase1a_v1.md 가 동일 구조, Airflow 페이지는 Day 9 종료 시점 plan-update commit 으로 본문 작성 |
+| §8-1 차별화 메시지 4종 (Top 4) | 포트폴리오 p3 (#1, #3) + p5 (#2) + **p6 (#4 Airflow 본진 사용 패턴 진화)** |
+| §8-2 면접 카운터 응답 (10종, Airflow / Dagster·Prefect / 3계층 분리 답변 추가) | 포트폴리오 끝 표 (Task 10.2 plan-update 시점에 3개 답변 추가) |
 | §9-1 Day 6 fallback (Debezium 4시간) | Task 6.4 runbook 의 fallback 섹션 |
 | §9-1 Day 7 fallback (Pages 안 됨) | Task 7.4 의 ngrok 가이드 |
-| §9-1 Day 9 fallback (Spark 안 됨) | Task 9.2 Step 3 + 9.3 runbook |
+| §9-1 Day 9 fallback (Spark 안 됨, **`iceberg_maintenance` DAG SparkSubmitOperator → BashOperator 교체**) | Task 9.2 Step 3 + 9.3 runbook |
+| §9-1 Day 9 fallback (Spark 기동 시 OOM, **`airflow-scheduler` 일시 stop**) | Task 9.3 메모 + Task 10.4 빠른 시작 7) |
 
 ### 2. Placeholder 스캔
 
@@ -2918,7 +3019,9 @@ GitHub Actions 두 잡 (`python` + `dbt`) green 확인.
 - "Add appropriate error handling" → 0건. 모든 producer / API 가 구체적 try/except + tenacity retry.
 - "Write tests for the above" → 0건. 모든 TDD step 에 실제 테스트 코드.
 - "Similar to Task N" → 0건. 각 task 는 자체 코드 포함.
-- 한 가지 예외: **포트폴리오 p4 의 SLO 숫자, p5 의 Spark 출력**은 plan 작성 시점 추정치를 명시적 예시로 적었고, Task 10.2 Step 2 + Task 10.3 Step 3 에서 실측치로 교체하는 절차를 step 으로 박아뒀다 → 이는 placeholder 가 아니라 "실측 후 교체" 의 절차 명시.
+- 두 가지 예외:
+  1. **포트폴리오 p4 의 SLO 숫자, p5 의 Spark 출력**은 plan 작성 시점 추정치를 명시적 예시로 적었고, Task 10.2 Step 2 + Task 10.4 Step 3 에서 실측치로 교체하는 절차를 step 으로 박아뒀다 → 이는 placeholder 가 아니라 "실측 후 교체" 의 절차 명시.
+  2. **Task 9.3 의 `iceberg_maintenance` DAG 통합 + Task 10.2 의 포트폴리오 p2/p3/p6 갱신 + Task 10.3 의 `slo_daily_report` DAG 본문**은 spec §5-8 도입 후 추가된 항목으로, **Day 9 종료 시점 plan-update commit 으로 상세 step 작성** 이 명시되어 있다 (env 편차 + Day 5 Airflow 셋업 결과 + Day 9 Spark 본격 운영 결과 반영). 동일 패턴이 Week 1 Task 5.5~5.8 에서 정착된 점진적 작성 방식과 일치.
 
 ### 3. 타입 / 명명 일관성
 
