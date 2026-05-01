@@ -1,0 +1,23 @@
+{
+  "RESULT": {"RESULT.CODE": "INFO-000", "RESULT.MESSAGE": "정상 처리되었습니다"},
+  "CITYDATA": {
+    "AREA_NM": "강남역",
+    "AREA_CD": "POI001",
+    "LIVE_PPLTN_STTS": {
+      "AREA_CONGEST_LVL": "붐빔",
+      "AREA_CONGEST_MSG": "사람이 많이 모여있어 답답할 수 있어요.",
+      "AREA_PPLTN_MIN": "42000",
+      "AREA_PPLTN_MAX": "44000",
+      "PPLTN_TIME": "2026-04-30 14:25"
+    },
+    "ROAD_TRAFFIC_STTS": {
+      "AVG_ROAD_DATA": {"ROAD_TRAFFIC_IDX": "서행", "ROAD_TRAFFIC_SPD": "18.4"}
+    },
+    "WEATHER_STTS": {
+      "WEATHER_TIME": "2026-04-30 14:20",
+      "TEMP": "21.3",
+      "PRECIPITATION": "없음",
+      "PCP_MSG": "비가 오지 않습니다"
+    }
+  }
+}
