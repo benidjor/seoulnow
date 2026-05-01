@@ -1,0 +1,25 @@
+{
+  "errorMessage": {"code": "INFO-000", "message": "정상 처리되었습니다"},
+  "CongestionInfo": [
+    {
+      "stationCode": "0222",
+      "stationName": "강남",
+      "lineName": "2호선",
+      "trainNo": "2034",
+      "direction": "내선",
+      "congestionScore": 87.5,
+      "congestionLevel": "혼잡",
+      "responseTime": "2026-04-30 14:25:30"
+    },
+    {
+      "stationCode": "0239",
+      "stationName": "홍대입구",
+      "lineName": "2호선",
+      "trainNo": "2071",
+      "direction": "외선",
+      "congestionScore": 62.0,
+      "congestionLevel": "보통",
+      "responseTime": "2026-04-30 14:25:30"
+    }
+  ]
+}
