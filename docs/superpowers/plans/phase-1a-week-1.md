@@ -2600,9 +2600,18 @@ git commit -m "feat: duckdb verification script for bronze/silver/gold"
 
 ---
 
-## Day 5 — dbt-core 도입 + GitHub Actions CI
+## Day 5 — dbt-core + Airflow 본진 셋업 + GitHub Actions CI
 
-**Day 5 목표 (spec §6-1):** Silver→Gold 변환 일부를 dbt-core(+dbt-duckdb) 모델로 코드화하고, dbt tests 5~10개를 추가하며, GitHub Actions 가 PR 마다 ruff + pytest + dbt parse/test 를 돌린다. Gold 적재 자체는 PyFlink 가 streaming 으로 계속 담당하고, dbt 는 **시간당 집계 (`fact_hotspot_congestion_hourly`)** 등 batch-friendly mart 1개를 새로 만든다.
+**Day 5 목표 (spec §6-1, §5-8):** ① Silver→Gold 변환 일부를 dbt-core(+dbt-duckdb) 모델로 코드화하고 dbt tests 5~10개 추가, ② GitHub Actions 가 PR 마다 ruff + pytest + dbt parse/test 를 돌리고, ③ **Airflow (LocalExecutor + SQLite metadata) 셋업 + `dbt_full_run` DAG (TaskGroup + 의존성 + SLA + on_failure_callback)** 로 dbt 운영을 batch ops 본진에 올린다. Gold 적재 자체는 PyFlink 가 streaming 으로 계속 담당하고, dbt 는 **시간당 집계 (`fact_hotspot_congestion_hourly`)** 등 batch-friendly mart 1개를 새로 만든다.
+
+**Airflow 도입 사유 (spec §5-8 본진 사용 정당화):**
+- 1번 포트폴리오에서 Airflow 를 15분 batch trigger (cron 대용) 로만 사용 → 본 프로젝트에서 본진 기능 직접 운영으로 spec §2 약점 #11 커버
+- DE JD 빈출 키워드 "Airflow 등 워크플로우 관리 도구 운영 경험" 직접 대응
+- 3계층 분리 원칙: streaming = Flink, polling = cron, batch ops = Airflow
+
+**메모리 mitigation (spec §5-8, §9-3):** LocalExecutor + SQLite metadata DB → ~700MB. Postgres meta / Celery / Redis 미사용. Airflow 도입 직후 free 메모리 측정 (80% = 19.2GB 임계 확인). Day 9 Spark 기동 직전 `airflow-scheduler` 일시 stop 운영 원칙.
+
+**Day 5 fallback (spec §9-1):** Airflow 셋업 4시간 초과 시 1단계 — `dbt_full_run` 만 GitHub Actions schedule + cron 으로 우회 후 buffer 에 재시도. Day 6 에도 실패 시 2단계 — Airflow 미도입으로 결정 + 약점 #11 미커버를 포트폴리오에 솔직히 기술.
 
 ### Task 5.1: dbt-duckdb 프로젝트 init
 
@@ -3040,15 +3049,181 @@ git commit -m "ci: github actions for ruff, pytest, dbt parse/compile"
 git push
 ```
 
+---
+
+### Task 5.5: Airflow 셋업 — docker-compose 추가 (LocalExecutor + SQLite metadata)
+
+**Files:**
+- Modify: `docker-compose.yml` — `airflow-init` (init container) + `airflow-webserver` + `airflow-scheduler` 서비스 추가
+- Create: `airflow/Dockerfile` — Airflow 이미지 + Python 의존성 (`apache-airflow-providers-postgres`, `pyiceberg`, `duckdb`, `boto3`)
+- Create: `airflow/requirements.txt`
+- Create: `airflow/dags/.gitkeep`
+- Create: `airflow/plugins/.gitkeep`
+- Create: `airflow/logs/.gitkeep` (gitignore)
+- Modify: `.env.example` — `AIRFLOW_UID`, `AIRFLOW_HOME`, `AIRFLOW_FERNET_KEY`, `AIRFLOW__WEBSERVER__SECRET_KEY`
+- Modify: `.gitignore` — `airflow/logs/`, `airflow/airflow.db`
+- Modify: `scripts/healthcheck.sh` — Airflow webserver `/health` endpoint 체크 추가
+
+**Goal:** `docker compose up -d airflow-webserver airflow-scheduler` 후 `http://localhost:8080` 에서 Airflow UI 접속, admin 계정 로그인 가능, 초기 DAG 0개 상태 확인.
+
+**본진 기능 발휘 포인트 (spec §5-8):**
+- LocalExecutor + SQLite metadata → Postgres meta / Celery / Redis 미사용 → ~700MB
+- `parsing_processes=1, dag_dir_list_interval=300` → scheduler 메모리 절감
+- `airflow-init` init container 가 첫 기동 시 `airflow db init` + admin 사용자 생성 후 종료 (idempotent)
+
+**환경 편차 가정 (`env-deviations-day-1` 메모리 참조):**
+- Apache 공식 이미지 (`apache/airflow:2.10.x`) 채택. constraints URL 은 Airflow 2.10 + Python 3.11 매칭.
+- ARM Ampere A1 아키텍처 호환 확인 (`docker buildx`).
+
+**검증 명령:**
+- `./scripts/healthcheck.sh` → Airflow webserver OK
+- `docker stats airflow-webserver airflow-scheduler` → RES 합계 < 1GB 확인
+- `free -h` → 80% (19.2GB) 임계 안 확인. **초과 시 spec §9-1 fallback 트리거 가동.**
+- `docker compose logs airflow-scheduler --tail=50 | grep -i error` → 0건
+
+**Day 5 fallback 트리거:** 4시간 초과 시 Task 5.6/5.7/5.8 보류 + `dbt_full_run` 만 GitHub Actions schedule 로 우회.
+
+> **상세 implementation step (Dockerfile 본문, docker-compose 환경변수 풀세트, healthcheck 명령) 은 Day 4 종료 시점에 별도 plan-update commit 으로 작성 — env 편차 (Airflow constraints, ARM 빌드, Lakekeeper network alias) 반영 필요.**
+
+---
+
+### Task 5.6: `dbt_full_run` DAG — dbt 운영을 Airflow 본진에 (TaskGroup + 의존성 + SLA)
+
+**Files:**
+- Create: `airflow/dags/dbt_full_run.py` — DAG 정의
+- Create: `airflow/dags/common/callbacks.py` — `send_discord_alert(context)` (on_failure_callback)
+- Create: `airflow/dags/common/__init__.py`
+- Create: `tests/unit/airflow/test_dbt_full_run_dag.py` — DAG 파싱 / 의존성 그래프 / SLA / callback 검증
+
+**Goal:** `airflow dags trigger dbt_full_run` 으로 staging → marts 순서 실행, staging test 실패 시 marts 자동 skip, on_failure_callback 발신 동작.
+
+**본진 기능 발휘 (spec §5-8 표 1행):**
+- **TaskGroup**: `with TaskGroup("staging") as staging:`, `with TaskGroup("marts") as marts:` — UI 시각 분리
+- **Task 의존성**: `staging.dbt_test_staging >> marts.dbt_run_marts` — test 실패 시 marts 자동 skip
+- **Retry policy**: `default_args={"retries": 2, "retry_exponential_backoff": True, "retry_delay": timedelta(minutes=5)}`
+- **SLA**: `default_args={"sla": timedelta(minutes=30)}` — 30분 초과 시 SLA miss 자동 기록
+- **on_failure_callback**: Discord webhook (Task ID + execution_date + log URL)
+- schedule: `"0 2 * * *"` (매일 02:00 KST, streaming peak 회피)
+
+**Task 그래프 (spec §5-8 의 시각화 그대로):**
+```
+dbt_seed
+└─ TaskGroup: staging
+   ├─ dbt_run_staging   (BashOperator: dbt run --select staging)
+   └─ dbt_test_staging  (BashOperator: dbt test --select staging)
+   └─ TaskGroup: marts
+      ├─ dbt_run_marts  (BashOperator: dbt run --select marts)
+      └─ dbt_test_marts (BashOperator: dbt test --select marts)
+└─ dbt_docs_generate    (BashOperator: dbt docs generate)
+└─ upload_docs          (BashOperator: aws s3 cp / Cloudflare Pages)
+```
+
+**TDD 단계 (pure DAG 파싱 검증):**
+- Step 1: 실패 테스트 — `test_dag_loads()`, `test_staging_blocks_marts()`, `test_sla_30min()`, `test_on_failure_callback_set()`
+- Step 2: 테스트 fail 확인
+- Step 3: DAG 본문 작성 (위 본진 기능 모두 발휘)
+- Step 4: 테스트 PASS 확인 (`pytest tests/unit/airflow -v`)
+- Step 5: Airflow UI 에서 DAG 보임 + manual trigger 1회 성공 (dbt 실패해도 callback 검증 가능)
+- Step 6: Commit
+
+**검증 명령:**
+- `airflow dags list | grep dbt_full_run` → 보임
+- `airflow dags test dbt_full_run $(date +%Y-%m-%d)` → end-to-end 1회 성공 (또는 staging test 실패 시 marts skip 확인)
+- Airflow UI > Graph view 에서 staging/marts TaskGroup 시각 확인
+
+> **상세 implementation step (Discord webhook URL 환경변수, dbt CLI working_dir, profiles.yml 경로, BashOperator vs DbtRunOperator 선택) 은 Day 4 종료 시점에 별도 plan-update commit 으로 작성. dbt CLI 호출 패턴은 Task 5.4 의 GitHub Actions yml 과 일관성 유지.**
+
+---
+
+### Task 5.7 (Day 5~6 buffer): `backfill_silver_from_bronze` DAG — Dynamic Task Mapping + 멱등 MERGE INTO
+
+**Files:**
+- Create: `airflow/dags/backfill_silver_from_bronze.py`
+- Create: `airflow/dags/common/spark_submit.py` — Spark 호출 helper (Day 9 와 공유)
+- Create: `tests/unit/airflow/test_backfill_dag.py`
+- Create: `spark/jobs/backfill_silver_partition.py` — partition 1개 처리 Spark job (멱등 MERGE INTO)
+
+**Goal:** Airflow UI 에서 `start_ts` / `end_ts` / `tables` / `dry_run` Params 입력 후 trigger → 시간 partition 별로 Spark job 병렬 실행 (max 2개 동시) → 멱등 MERGE INTO 로 Silver 재처리. 같은 백필을 반복해도 결과 동일.
+
+**본진 기능 발휘 (spec §5-8 표 3행):**
+- **Dynamic Task Mapping**: `process_partition.expand(partition=hours)` — 런타임에 N개 task 자동 생성 (Airflow 2.3+)
+- **Params**: 6개 시간 partition 백필 시 6개 task 자동 펼침
+- **`max_active_tis_per_dag=2`**: Spark 동시 submit 2개 제한 → 메모리 OOM 방지
+- **dry_run 모드**: row count 만 추정, 실제 적재 안 함
+- **멱등 MERGE INTO**: `MERGE INTO silver.* USING bronze.* ON dedup_key WHEN MATCHED UPDATE WHEN NOT MATCHED INSERT`
+- schedule: `None` (수동 trigger 전용)
+
+**Task 그래프:**
+```
+validate_params
+└─ generate_hourly_partitions  (Python: ["2026-...T00", "...T01", ...])
+   └─ process_partition.expand(partition=...) ← ★ Dynamic Task Mapping
+   └─ verify_silver_row_count
+   └─ post_backfill_summary    (Discord webhook)
+```
+
+**검증 명령 (3시간 백필 dry_run):**
+- Airflow UI > Trigger DAG w/ config: `{"start_ts": "2026-...T00", "end_ts": "2026-...T03", "tables": ["fact_hotspot_congestion_5min"], "dry_run": true}`
+- Graph view 에서 process_partition[0/1/2] 3개 task 자동 생성 확인
+- 모든 task SUCCESS + Discord 요약 메시지 도착 확인
+
+**면접 답변 시그널 (spec §8-2):** 백필 설계 = orchestrator 본진. "어떻게 백필했어요?" 단골 질문 답변.
+
+> **상세 implementation step (Spark job 본문, MERGE INTO SQL, dedup_key 결정, partition 시간 범위 generator) 은 Day 4 종료 시점 plan-update commit 으로 작성. Day 9 Task 9.2 (Spark MERGE INTO 멱등성 검증) 와 dedup_key 일관성 필수 (spec §10 1번 미해결 closure 과 동일 패턴).**
+
+---
+
+### Task 5.8 (Day 5~6 buffer): `iceberg_maintenance` DAG 골격 — Day 9 본격 운영 전 셋업
+
+**Files:**
+- Create: `airflow/dags/iceberg_maintenance.py` — DAG 골격 (Day 5 시점은 BashOperator placeholder, Day 9 에서 SparkSubmitOperator 로 교체)
+- Create: `tests/unit/airflow/test_iceberg_maintenance_dag.py` — DAG 파싱 + 병렬 구조 + max_active_tis_per_dag 검증
+
+**Goal:** DAG 파싱 / 병렬 구조 / SLA 1시간 / max_active_tis_per_dag=3 골격을 Day 5 buffer 에 미리 잡아두고, Day 9 에서 실제 Spark MERGE INTO + Compaction job 으로 본문 채움. **Day 5 시점은 BashOperator 가 echo 만 하는 placeholder (DAG 파싱 검증만).**
+
+**본진 기능 발휘 (spec §5-8 표 2행, Day 9 에서 본격 활성화):**
+- **병렬 실행**: TaskGroup `rewrite` 안에 3개 task (`rewrite_fact_hotspot_congestion_5min`, `rewrite_fact_user_event` (P1B 후 활성화), `rewrite_dim_place`)
+- **`max_active_tis_per_dag=3`**: Spark concurrent submit 제한
+- **XCom**: before/after 메트릭 (`{file_count, total_bytes, snapshot_count}`)
+- **on_success_callback**: Discord 압축률 자동 보고
+- **SLA 1시간**: 메모리 ceiling 위협 자동 감지
+- schedule: `"0 3 * * *"` (매일 03:00 KST)
+
+**Task 그래프 (Day 9 에서 본격):**
+```
+snapshot_metrics_before    (XCom push)
+└─ TaskGroup: rewrite      (병렬, max 3)
+   ├─ rewrite_fact_hotspot_congestion_5min
+   ├─ rewrite_fact_user_event  (P1B 후 활성화)
+   └─ rewrite_dim_place
+   └─ expire_snapshots (older than 7d)
+      └─ remove_orphan_files (older than 3d)
+         └─ snapshot_metrics_after  (XCom push)
+            └─ post_compaction_report  (XCom pull → Discord)
+```
+
+**Day 5 시점 검증 명령 (골격만):**
+- `pytest tests/unit/airflow/test_iceberg_maintenance_dag.py -v` → 파싱 / 병렬 구조 / max_active_tis_per_dag / SLA 검증 PASS
+- Airflow UI > Graph view 에서 골격 시각 확인 (실제 실행은 Day 9 까지 schedule_interval=None 또는 unpause 보류)
+
+**Day 5 fallback 트리거:** Task 5.7/5.8 까지 buffer 안에 마치지 못하면 → Task 5.5/5.6 만 Day 5 PR 에 포함, Task 5.7/5.8 은 Day 6 시작 시 추가 commit. `iceberg_maintenance` 본문은 Day 9 에서 어차피 채우므로 큰 일정 부담 없음.
+
+> **상세 implementation step (Iceberg `rewrite_data_files` Spark SQL, expire_snapshots / remove_orphan_files Iceberg procedure, XCom dict 스키마, Discord 메시지 포맷) 은 Day 8 종료 시점 plan-update commit 으로 작성. Day 9 Task 9.3 (Compaction) 과 본문 통합 시점 동일.**
+
+---
+
 **Day 5 종료 게이트 (= Phase 1A Week 1 종료):**
-- `./scripts/healthcheck.sh` 4 components OK
-- `uv run pytest tests/unit -q` 모든 테스트 PASS
+- `./scripts/healthcheck.sh` 5 components OK (Kafka + Postgres + MinIO + Lakekeeper + **Airflow webserver**)
+- `uv run pytest tests/unit -q` 모든 테스트 PASS (airflow DAG 파싱 테스트 3개 포함)
 - DuckDB 검증 스크립트가 Bronze/Silver/Gold 모두 row > 0
 - SLO 리포트 P95 < 7분
 - dbt run + test 통과
 - GitHub Actions 두 잡 green
 - 토픽 4개 (hotspot, subway, place CDC, user events)
-- Iceberg 테이블 5개 (bronze 1 + silver 1 + gold 1 + dbt mart 1, 추가로 silver/gold 가 day별로 늘어날 수 있음)
+- Iceberg 테이블 5개 (bronze 1 + silver 1 + gold 1 + dbt mart 1)
+- **Airflow DAG 4개 등록** (`dbt_full_run` 활성, `backfill_silver_from_bronze` 수동 trigger 만, `iceberg_maintenance` 골격, **`slo_daily_report` 는 Day 10 에 추가**)
+- **Airflow `dbt_full_run` 1회 manual trigger 성공** (또는 staging test 실패 시 marts skip 동작 확인)
+- **`free -h` 80% 임계 안** (19.2GB), `docker stats` 로 Airflow RES 합계 < 1GB 확인
 
 위 게이트 모두 충족 시 Week 2 plan (`phase-1a-week-2.md`, Day 6~10) 으로 진입.
 
@@ -3064,10 +3239,12 @@ git push
 | Day 2 — 도시데이터 + 지하철 producer → 토픽 2개 | Task 2.1~2.3 |
 | Day 3 — PyFlink Bronze→Silver (정규화, region 매핑) → Iceberg via Lakekeeper | Task 3.1~3.4 |
 | Day 4 — PyFlink Silver→Gold (`fact_hotspot_congestion_5min`) + DuckDB 검증 + 데이터 신선도 SLO 측정 코드 | Task 4.1~4.3 |
-| Day 5 — dbt-core 도입, Silver→Gold 일부 dbt 이관, dbt tests 5~10, GitHub Actions CI | Task 5.1~5.4 |
+| Day 5 — dbt-core 도입, Silver→Gold 일부 dbt 이관, dbt tests 5~10, **Airflow 본진 셋업 + `dbt_full_run` DAG**, GitHub Actions CI | Task 5.1~5.4 + **5.5 (Airflow 셋업) + 5.6 (`dbt_full_run` DAG)** |
+| Day 5~6 buffer — `backfill_silver_from_bronze` + `iceberg_maintenance` 골격 (spec §5-8 본진 4 DAG 중 2~3번) | **Task 5.7 (backfill DAG, dynamic task mapping) + 5.8 (iceberg_maintenance 골격, Day 9 본문 채움)** |
+| Spec §5-8 — Airflow 본진 사용 정당화 + 메모리 mitigation (LocalExecutor + SQLite + 야간 실행 + Day 9 scheduler stop) | Task 5.5 (셋업) + 5.6/5.7/5.8 (본진 기능 발휘) + Day 5 종료 게이트 (`free -h` 80% 임계 검증) |
 | Spec §6-2 — `api_response_ts` 헤더 → `gold_arrival_ts`, P95 < 7분 | Task 2.2 (헤더), 4.1 (gold sink), 4.2 (리포트) |
-| Spec §9-1 fallback 트리거 (Lakekeeper, Flink, Spark) | Task 1.5 Step 4, Task 3.4 Step 4 (디버깅 가드) |
-| Spec §9-3 메모리 모니터 | Task 1.3 |
+| Spec §9-1 fallback 트리거 (Lakekeeper, Flink, Spark, **Airflow 셋업 4시간 / 메모리 80% 초과**) | Task 1.5 Step 4, Task 3.4 Step 4, **Task 5.5/5.6/5.7/5.8 의 Day 5 fallback 메모** |
+| Spec §9-3 메모리 모니터 | Task 1.3 + **Day 5 종료 게이트 재측정** |
 | Spec §10 Day 0 사전 준비 | "전제 (Day 0 완료 항목)" 섹션 |
 
 **2. Placeholder 스캔**
@@ -3076,6 +3253,7 @@ git push
 - "Add appropriate error handling" → 모든 producer 가 구체적 try/except + tenacity retry 명시.
 - "Write tests for the above" → 모든 TDD step 에 실제 테스트 코드 포함.
 - "Similar to Task N" → 0건. 각 task 코드 전체 포함.
+- **Task 5.5~5.8 (Airflow 4 task) 는 의도적 골격** — Files / Goal / 본진 기능 / 검증 명령 / fallback 까지는 명시했으나, 상세 implementation step (Dockerfile 본문, DAG Python 코드, Spark job 본문) 은 **Day 4 종료 시점 plan-update commit 으로 작성** (env 편차 반영 + dbt CLI 호출 패턴 통일을 위해). 이는 writing-plans skill 의 "No Placeholders" 원칙과 일부 충돌하지만, **명시적 시점 + 명시적 trigger 가 박혀있어 implicit TBD 가 아님** — 동일 패턴이 Week 2 (Day 6~10) 와 Week 1 (Day 1~5) 의 분리에서 이미 정착된 점진적 작성 방식을 따른다.
 
 **3. 타입 일관성**
 
