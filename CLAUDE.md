@@ -10,9 +10,9 @@
 
 ## 0. 한 줄 요약
 
-서울시 공공 실시간 데이터(도시데이터·지하철 혼잡도)와 Postgres CDC, 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고 **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions** 로 처리한다. 운영 비용은 월 $0~$2.
+서울시 공공 실시간 데이터(도시데이터·지하철 혼잡도)와 Postgres CDC, 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고 **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리한다. 운영 비용은 월 $0~$2.
 
-**Phase 1 (14일) = 1A (Day 1~10, 데이터 플랫폼 코어) + 1B (Day 11~14, 익명 실서비스 통합) → Phase 2 (8주, 본격 확장)**. Phase 1A 단독으로도 포트폴리오 5~6페이지 분량 제출 가능, 1A+1B 통합 시 8~10페이지.
+**Phase 1 (14일) = 1A (Day 1~10, 데이터 플랫폼 코어) + 1B (Day 11~14, 익명 실서비스 통합) → Phase 2 (8주, 본격 확장)**. Phase 1A 단독으로도 포트폴리오 6~7페이지 분량 제출 가능 (Airflow 본진 사용 페이지 포함), 1A+1B 통합 시 9~11페이지.
 
 ---
 
@@ -24,13 +24,14 @@
 | 데이터 소스 | 서울 도시데이터 + 지하철 혼잡도 + 공공 인허가(정적) + Postgres CDC | + **`user.events.v1`** (익명 사용자 행동) | + Google Places + UGC 별점 + 버스 위치 |
 | 메시징 | **Kafka KRaft single-node** | (동일) | (동일) |
 | 스트림 처리 | **PyFlink (메인) + Spark batch (Day 9 멱등성 검증 보조)** | (동일) | PyFlink 확정 |
+| 워크플로우 오케스트레이션 | **Airflow (LocalExecutor + SQLite, Day 5~10 본진 사용)** — `dbt_full_run` / `iceberg_maintenance` / `backfill_silver_from_bronze` / `slo_daily_report` 4 DAG | (동일) | + Phase 2 W4~5에 Dagster 추가 검토 (dbt asset 통합) |
 | 데이터 품질 | dbt tests + pytest | (동일) | + Great Expectations |
 | BI / 시각화 | DuckDB notebook + Next.js 메인 지도 | + 익명 북마크 + Web Push 알림 | + Apache Superset + 동네/가게 상세 |
 | 쿼리 엔진 | DuckDB | (동일) | + Trino single-node |
 | 인프라 자동화 | docker-compose + 수동 README | + Cloudflare D1 + Pages Functions + Workers Cron | + Terraform IaC |
 | 모니터링 | Flink Web UI + 자체 Python SLO 스크립트 | (동일) | + Grafana Cloud Free |
 | SLO | 데이터 신선도 P95 < 7분 | (동일) | + 사용자 클릭 latency / CDC 정합성 / API 비용 |
-| 포트폴리오 분량 | 5~6페이지 (1A 단독 제출 가능) | 8~10페이지 (1A+1B 강화 버전) | 12~15페이지 (전체 통합) |
+| 포트폴리오 분량 | 6~7페이지 (1A 단독 제출 가능, Airflow 페이지 포함) | 9~11페이지 (1A+1B 강화 버전) | 13~16페이지 (전체 통합) |
 
 **철칙**
 
@@ -65,8 +66,9 @@
 | 8 | 미해결 이슈가 "예정"으로 끝남 (1번 페이지 9·11) | Day 9 **Spark batch MERGE INTO + `rewrite_data_files`** 로 1번의 멱등성/Compaction 미해결 closure | P1A |
 | 9 | IaC 부재 | docker-compose (P1) → Terraform (P2) | P1A+P2 |
 | 10 | 테스트 코드 부재 | pytest로 transform 단위 테스트 | P1A |
+| 11 | **워크플로우 오케스트레이터 본진 사용 경험 부재** (1번은 Airflow를 15분 batch trigger = cron 대용 수준으로만 사용. DAG 의존성 / retry policy / SLA / 백필 / Branch 분기 등 본진 기능 미사용) | Day 5~10에 Airflow 본진 4 DAG 직접 운영 — `dbt_full_run` (TaskGroup + 의존성 + SLA), `iceberg_maintenance` (병렬 + XCom + on_success_callback), `backfill_silver_from_bronze` (dynamic task mapping + 멱등 MERGE INTO), `slo_daily_report` (BranchPythonOperator) | P1A |
 
-→ **Phase 1A 단독으로 10개 약점 중 8개를 커버.** Phase 1B 추가 시 #1·#3 강화. Phase 1A 단독 포트폴리오로도 충분히 임팩트.
+→ **Phase 1A 단독으로 11개 약점 중 9개를 커버.** Phase 1B 추가 시 #1·#3 강화. Phase 1A 단독 포트폴리오로도 충분히 임팩트.
 
 ## 3. 핵심 의사결정
 
@@ -79,6 +81,7 @@
 | 카탈로그 | Lakekeeper REST Catalog (fallback: JdbcCatalog) | 1번의 Hive Metastore와 차별화 + 메모리 절감 |
 | 쿼리 엔진 | DuckDB 우선, Trino는 P2 옵션 | 메모리·운영 부담 최소 |
 | 변환 / CI | dbt-core + GitHub Actions | 1·2번 모두 부재였던 영역 |
+| 워크플로우 오케스트레이션 | **Airflow (LocalExecutor + SQLite metadata)** — 본진 4 DAG (Day 5~10). cron / GitHub Actions / Workers Cron 과 3계층 분리 | 1번에서 Airflow 를 cron 대용으로만 사용 → 본 프로젝트에서 본진 기능(DAG 의존성·SLA·백필·Branch) 직접 운영. Phase 2 W4~5에 Dagster (dbt asset 통합) 검토. **streaming = Flink, polling = cron, batch ops = Airflow** 3계층 분리 원칙 |
 | Edge API → Kafka | **REST Proxy 패턴** (Cloudflare Pages Functions → HTTPS → Oracle Cloud HTTP receiver → Kafka) | Workers의 TCP 직접 연결 제약 회피, 디버깅 비용 최소화 |
 | 사용자 메타 저장소 | Cloudflare D1 (북마크, push subscription만) | 5GB 무료. **행동 로그는 절대 D1에 넣지 않음 — Kafka → Iceberg 직행** |
 | 알림 | Web Push (VAPID) + Workers Cron | 외부 서비스 의존 없음, 비용 0원 |
@@ -127,6 +130,7 @@
 | 레이크하우스 | Apache Iceberg + Lakekeeper REST Catalog (fallback: JdbcCatalog) | (동일) | (동일) |
 | 분석 엔진 | DuckDB (Iceberg 직접 쿼리) | (동일) | + Trino single-node |
 | 변환 레이어 | dbt-core (Silver→Gold) | (동일) | (동일) |
+| 워크플로우 오케스트레이션 | **Airflow (LocalExecutor + SQLite)** — `dbt_full_run` (Day 5), `iceberg_maintenance` (Day 9), `backfill_silver_from_bronze` (Day 5~6), `slo_daily_report` (Day 10) | (동일) | + Phase 2 Dagster 검토 (dbt asset 일등시민) |
 | 데이터 품질 | dbt tests + pytest | (동일) | + Great Expectations |
 | BI | DuckDB notebook 스크린샷 + Next.js 지도 | + 북마크 위젯 + Web Push | + Apache Superset |
 | CI/CD | GitHub Actions (dbt + PyFlink lint/test) | (동일) | (동일) |
@@ -183,9 +187,9 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 
 | 시점 | 분량 | 핵심 메시지 |
 |------|------|------------|
-| **Phase 1A 완료 (Day 10)** | 5~6페이지 | streaming 진정성 + 1번 미해결 closure + 공공 실데이터 도메인 확장 |
-| **Phase 1A+1B 완료 (Day 14)** | 8~10페이지 | + **본인 운영 익명 실서비스 + 그 서비스의 데이터 플랫폼 동시 보유** |
-| **Phase 1+2 통합 (8주 후)** | 12~15페이지 | + 실사용자 데이터 인사이트 + 추가 SLO 3종 |
+| **Phase 1A 완료 (Day 10)** | 6~7페이지 | streaming 진정성 + 1번 미해결 closure + 공공 실데이터 도메인 확장 + **Airflow 본진 사용** |
+| **Phase 1A+1B 완료 (Day 14)** | 9~11페이지 | + **본인 운영 익명 실서비스 + 그 서비스의 데이터 플랫폼 동시 보유** |
+| **Phase 1+2 통합 (8주 후)** | 13~16페이지 | + 실사용자 데이터 인사이트 + 추가 SLO 3종 + Dagster (dbt asset) 검토 |
 
 ## 10. 기존 포트폴리오와의 연결 (서사 연속성)
 
@@ -205,6 +209,7 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 | 카탈로그 | Hive Metastore | - | Lakekeeper REST Catalog | (동일) | (동일) |
 | 쿼리 엔진 | Trino | Snowflake | DuckDB | (동일) | + Trino single-node |
 | 변환 | Spark SQL (수동) | Snowflake SQL | dbt-core | (동일) | (동일) |
+| **워크플로우 사용 패턴** | Airflow = 15분 batch trigger (cron 대용) | (없음) | **Airflow 본진 4 DAG** — DAG 의존성 / TaskGroup / SLA / dynamic task mapping (백필) / BranchPythonOperator / XCom / on_failure_callback. **streaming = Flink, polling = cron, batch ops = Airflow** 3계층 분리 | (동일) | + Dagster 검토 (dbt asset) |
 | DQ | dropDuplicates 수동 | MERGE INTO | dbt tests + pytest | (동일) | + Great Expectations |
 | **데이터 출처** | 시뮬레이터 (가짜) | Kaggle (정적) | 공공 실시간 API + CDC | + **익명 실서비스 행동 로그** | + UGC + Google Places |
 | CDC | 없음 | 없음 | Debezium | (동일) | (동일) |
@@ -214,9 +219,10 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 
 ## 12. 차별화 포인트 (면접 어필)
 
-> 면접 카운터 응답 8종은 **design.md §8-2** 단일 출처 참조.
+> 면접 카운터 응답 10종은 **design.md §8-2** 단일 출처 참조 (Airflow / Dagster·Prefect / 3계층 분리 답변 추가).
 
-- **Phase 1A 단독으로도** 신입 풀에서 보기 드문 조합: 진짜 Kafka streaming(Flink) + 공공 실시간 API + CDC + Lakekeeper + dbt + GitHub Actions + Iceberg MERGE INTO 멱등성 closure
+- **Phase 1A 단독으로도** 신입 풀에서 보기 드문 조합: 진짜 Kafka streaming(Flink) + 공공 실시간 API + CDC + Lakekeeper + dbt + Airflow 본진 4 DAG + GitHub Actions + Iceberg MERGE INTO 멱등성 closure
+- **Airflow 본진 사용 패턴**: 1번에서 cron 대용으로만 사용했던 Airflow 를 본진(DAG 의존성 그래프 / dynamic task mapping 백필 / BranchPythonOperator 분기 / SLA / TaskGroup / XCom / on_failure_callback) 으로 재학습. 도구 활용도의 학습 곡선 자체가 서사 — JD 빈출 키워드 "Airflow 등 워크플로우 관리 도구 운영 경험" 직접 대응
 - **Phase 1A+1B 통합 시 희소성**: "직접 운영하는 익명 실서비스 + 그 서비스의 데이터 플랫폼" 동시 보유 — 신입 풀에서 거의 안 보임
 - **공공·공간 데이터 도메인** = 한국 시장 (SK·KT·네이버·카카오모빌리티·티맵·당근 등)에 강한 어필
 - **이종 소스 통합 패턴**: P1A 3개(공공 API 2 + CDC) → P1B 4개 (+ 익명 행동) → P2 6+개. 메시지 버스로서의 Kafka 정당화.
@@ -234,7 +240,7 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 - **공공 API rate limit** — 토큰 키마다 한도 있음. 캐싱·백오프 필수.
 - **Google Places API 비용** (P2) — 캐싱 전략 필수 (TTL 7~30일).
 - **Kafka KRaft single-node 한계** — 무중단 보장 어려움. "비용 vs 가용성" Trade-off로 명시.
-- **메모리 충돌 주의**: Kafka + Flink 상시 가동 + Spark는 Day 9 일시 기동 원칙 (24GB 한계).
+- **메모리 충돌 주의**: Kafka + Flink + Airflow 상시 가동 + Spark는 Day 9 일시 기동 원칙 (24GB 한계). **Airflow 메모리 mitigation 필수**: LocalExecutor + SQLite metadata DB (Postgres meta / Celery / Redis 미사용) → ~700MB. Day 9 Spark 기동 직전 `docker compose stop airflow-scheduler` 로 일시 회수. DAG 들은 야간(02~05시) 실행으로 streaming peak 회피. Day 5 도입 직후 free 메모리 측정 필수 (80% 임계 = 19.2GB).
 - **Edge API 토큰 보안**: `user.events.v1` 발행 권한 secret 관리. Kafka는 Tunnel 내부에서만 수신.
 - **D1 5GB 한도**: 사용자 메타만 (북마크/구독). 행동 로그는 절대 D1에 넣지 않음.
 - **VAPID 키 / 환경변수**: GitHub commit 금지. `.gitignore` 에 이미 포함.
