@@ -53,6 +53,7 @@ def parse_subway_payload(payload: dict[str, Any]) -> list[SubwayCongestionEvent]
         try:
             api_ts = datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
         except ValueError:
+            log.debug("skip_bad_response_time", raw=ts_raw)
             continue
         out.append(
             SubwayCongestionEvent(
@@ -87,6 +88,7 @@ def run(lines: list[str]) -> None:
 
     def _on_signal(_signum, _frame):
         stop["flag"] = True
+        log.info("shutdown signal received")
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -106,6 +108,10 @@ def run(lines: list[str]) -> None:
                         log.warning("fetch_failed", line=line, error=type(e).__name__)
                         continue
                     events = parse_subway_payload(payload)
+                    if not events:
+                        # errorMessage 코드 / responseTime 파싱 실패 / 빈 CongestionInfo 등
+                        log.warning("parse_returned_empty", line=line)
+                        continue
                     for event in events:
                         produce_json(
                             producer,
@@ -115,6 +121,7 @@ def run(lines: list[str]) -> None:
                             headers=event.kafka_headers(),
                         )
                     log.info("produced_batch", line=line, count=len(events))
+                # 매 cycle 즉시 broker commit. finally 의 flush 는 예외 / 비정상 경로 방어용
                 producer.flush(timeout=10)
 
                 elapsed = time.monotonic() - cycle_start
