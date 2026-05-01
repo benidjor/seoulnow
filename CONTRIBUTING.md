@@ -110,24 +110,21 @@ feat(infra): Day 1 — kafka kraft + lakekeeper + minio + healthcheck
 
 ### 본문
 
-`.github/PULL_REQUEST_TEMPLATE.md` 사용. 핵심 섹션 (모두 한글 소제목, bullet 우선):
+`.github/PULL_REQUEST_TEMPLATE.md` 사용. dbt 스타일을 참고한 7 섹션 (모두 한글 소제목, bullet 우선):
 
-1. **요약** — 이번 PR 이 무엇을 / 왜 했는지 한눈에. bullet 으로.
-2. **배경** — 이 PR 이 필요했던 맥락. 어떤 문제를 풀거나 어떤 단계를 진행하는지. plan 의 어느 Task 에 해당하는지.
-3. **기대효과** — 이 PR 이 머지된 후 가능해지는 것. 다음 Day 가 무엇을 전제로 시작할 수 있는지. SLO / 비용 / 운영 측면 영향.
-4. **Day X 완료 기준** — plan §6-1 의 해당 Day 종료 게이트 체크리스트.
-5. **변경 사항** — 파일 단위 narrative. bullet.
-6. **검증** — 어떻게 확인했는지. 명령 + 출력 발췌.
-7. **원안에서 달라진 점** — plan 본문과 실제 구현이 달라진 부분 + 이유. 표 안의 셀이 길어지면 bullet 으로.
-8. **트러블슈팅** — 큰 이슈는 별도 문서로 archive 하고 여기엔 link.
-9. **리스크 / 롤백** — 데이터 손실 가능성 / 마이그레이션 / 후속 작업 영향.
-10. **체크리스트** — secrets / tests / docs / backward compat / commit 컨벤션 / PR 크기.
-11. **참고** — plan / spec / 이전 PR / 관련 문서 link.
+1. **배경 / 목적** — 어떤 단계 (plan 의 Day / Task) + 직전 부족함 + 머지 후 가치.
+2. **의사결정 / Trade-off** — 의사결정 / 대안 검토 / 채택 사유 / 원안에서 달라진 점 표 / review 라운드 Important fix. 자명한 코드 narrative (diff 가 보여주는 것) 는 제외. 큰 트러블슈팅은 `docs/portfolio/troubleshooting/` 별도 문서로 archive 하고 link + 한 줄 요약.
+3. **변경 사항** — 파일 단위 narrative. *무엇이* 바뀌었는지 bullet.
+4. **검증** — 명령어 + 결과 발췌. 명령어 옆 `#` 주석은 한국어. 스크린샷 / 메시지 샘플 / row count / SLO 측정값.
+5. **장애 시나리오 / 롤백 전략** — 머지 후 잘못되면 어떤 형태로 잘못될 수 있는가 + 롤백 방법. 데이터 손실 / 멱등성 / schema / SLO / 비용 / 보안 / 계층 (streaming / cron / batch ops) 의존 중 해당하는 것만. 없으면 "잠재 위험 없음. git revert 로 롤백 가능." 한 줄.
+6. **체크리스트** — atomicity / secrets / tests + lint / SoT 일관 / commit 컨벤션 / PR 크기. PR 작성자가 실제 통과한 항목에 ☑, 사용자가 머지 전 final 검증 (작성자 self-check 의 false positive 보정).
+7. **레퍼런스** — plan / spec / 이전 PR / runbook / 메모리 link.
 
 원칙:
-- 영어 소제목 / 영어 narrative 금지 — type / scope / 영문 식별자 / 코드 주석은 별개.
+- 영어 소제목 / 영어 narrative 금지 — type / scope / 영문 식별자 / 코드 주석 / `Trade-off` 같은 정착 외래어는 별개.
 - PR description 안의 코드 블록 안 주석은 한국어로.
 - 표 셀이 두 줄 넘게 길어지면 셀 안에서 bullet (`-`) 으로 쪼개기.
+- 시점 cutoff 원칙: 본 컨벤션 정착 *이전* PR (#1, #2) 은 옛 11 섹션 template 그대로 보존. retroactive 갱신 X. 컨벤션 진화 자체가 portfolio 의 자료.
 
 ### 크기 가이드
 
