@@ -1058,7 +1058,7 @@ def duck_connection() -> duckdb.DuckDBPyConnection:
         f"""CREATE OR REPLACE SECRET (
             TYPE S3,
             KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password}',
+            SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{endpoint_no_proto}',
             URL_STYLE 'path',
             USE_SSL false,
@@ -1542,7 +1542,7 @@ def main() -> None:
     endpoint = s.minio_endpoint.replace("http://", "")
     con.execute(
         f"""CREATE OR REPLACE SECRET (
-            TYPE S3, KEY_ID '{s.minio_user}', SECRET '{s.minio_password}',
+            TYPE S3, KEY_ID '{s.minio_user}', SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{endpoint}', URL_STYLE 'path', USE_SSL false, REGION '{s.minio_region}'
         )"""
     )
