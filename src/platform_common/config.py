@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     minio_endpoint: str = Field(default="http://localhost:9000", alias="MINIO_ENDPOINT")
     minio_region: str = Field(default="us-east-1", alias="MINIO_REGION")
     minio_user: str = Field(default="minioadmin", alias="MINIO_ROOT_USER")
-    minio_password: str = Field(default="minioadmin", alias="MINIO_ROOT_PASSWORD")
+    minio_password: SecretStr = Field(default=SecretStr("minioadmin"), alias="MINIO_ROOT_PASSWORD")
     iceberg_warehouse_bucket: str = Field(default="seoul-warehouse", alias="ICEBERG_WAREHOUSE_BUCKET")
 
     lakekeeper_url: str = Field(default="http://localhost:8181", alias="LAKEKEEPER_URL")
