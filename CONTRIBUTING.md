@@ -110,27 +110,54 @@ feat(infra): Day 1 — kafka kraft + lakekeeper + minio + healthcheck
 
 ### 본문
 
-`.github/PULL_REQUEST_TEMPLATE.md` 사용. dbt 스타일을 참고한 7 섹션 (모두 한글 소제목, bullet 우선):
+`.github/PULL_REQUEST_TEMPLATE.md` 사용. dbt 스타일을 참고한 7 섹션 (모두 한글 소제목, 두 단어 결합은 `&` 로):
 
-1. **배경 / 목적** — 어떤 단계 (plan 의 Day / Task) + 직전 부족함 + 머지 후 가치.
-2. **의사결정 / Trade-off** — 의사결정 / 대안 검토 / 채택 사유 / 원안에서 달라진 점 표 / review 라운드 Important fix. 자명한 코드 narrative (diff 가 보여주는 것) 는 제외. 큰 트러블슈팅은 `docs/portfolio/troubleshooting/` 별도 문서로 archive 하고 link + 한 줄 요약.
+1. **배경 & 목적** — 어떤 단계 (plan 의 Day / Task) + 직전 부족함 + 기대 효과 (머지 후 어떤 변화가 생기는지).
+2. **의사결정 & Trade-off** — 의사결정 / 대안 검토 / 채택 사유 / 원안에서 달라진 점 표 / review 라운드 Important fix. 자명한 코드 narrative (diff 가 보여주는 것) 는 제외. 큰 트러블슈팅은 `docs/portfolio/troubleshooting/` 별도 문서로 archive 하고 link + 한 줄 요약.
 3. **변경 사항** — 파일 단위 narrative. *무엇이* 바뀌었는지 bullet.
 4. **검증** — 명령어 + 결과 발췌. 명령어 옆 `#` 주석은 한국어. 스크린샷 / 메시지 샘플 / row count / SLO 측정값.
-5. **장애 시나리오 / 롤백 전략** — 머지 후 잘못되면 어떤 형태로 잘못될 수 있는가 + 롤백 방법. 데이터 손실 / 멱등성 / schema / SLO / 비용 / 보안 / 계층 (streaming / cron / batch ops) 의존 중 해당하는 것만. 없으면 "잠재 위험 없음. git revert 로 롤백 가능." 한 줄.
+5. **장애 시나리오 & 롤백 전략** — 머지 후 잘못되면 어떤 형태로 잘못될 수 있는가 + 롤백 방법. 데이터 손실 / 멱등성 / schema / SLO / 비용 / 보안 / 계층 (streaming / cron / batch ops) 의존 중 해당하는 것만. 없으면 "잠재 위험 없음. `git revert` 로 롤백 가능." 한 줄.
 6. **체크리스트** — atomicity / secrets / tests + lint / SoT 일관 / commit 컨벤션 / PR 크기. PR 작성자가 실제 통과한 항목에 ☑, 사용자가 머지 전 final 검증 (작성자 self-check 의 false positive 보정).
 7. **레퍼런스** — plan / spec / 이전 PR / runbook / 메모리 link.
 
-원칙:
+가독성 원칙:
+
+- **헤더 깊이** — 의사결정 narrative 가 길어지면 `###` 으로 의사결정 단위 분리, 그 안의 측면은 `####` 으로 한 단계 더 분리. 필요 시 `#####` 까지 사용. 권장 sub-헤더 어휘:
+  - `#### 충돌 발생 과정`
+  - `#### 발견 과정`
+  - `#### 코드에 미치는 영향`
+  - `#### 처리 방법`
+  - `#### 다른 후보 처리`
+- **줄바꿈 / bullet** — 긴 문장에 `—` 또는 `→` 가 여러 번 등장하면 한 줄에 묶지 말고 줄바꿈 또는 bullet 으로 쪼개기. 한 단계씩 따라 읽도록.
+- **한국어 주석 강제** — PR description 안의 코드 블록 안 `#` 주석은 한국어로.
+- **표 셀** — 두 줄 넘게 길어지면 셀 안에서 bullet (`-`) 으로 쪼개기.
+
+어휘 원칙:
+
 - 영어 소제목 / 영어 narrative 금지 — type / scope / 영문 식별자 / 코드 주석 / `Trade-off` 같은 정착 외래어는 별개.
-- PR description 안의 코드 블록 안 주석은 한국어로.
-- 표 셀이 두 줄 넘게 길어지면 셀 안에서 bullet (`-`) 으로 쪼개기.
+- 두 단어 결합 (배경 & 목적, 의사결정 & Trade-off, 장애 시나리오 & 롤백 전략) 은 `/` 가 아닌 `&` 로 통일.
 - 시점 cutoff 원칙: 본 컨벤션 정착 *이전* PR (#1, #2) 은 옛 11 섹션 template 그대로 보존. retroactive 갱신 X. 컨벤션 진화 자체가 portfolio 의 자료.
 
 ### 크기 가이드
 
-- 400 lines diff 이하: 작음 (이상적)
-- 400~1000: 중간 (분할 고려)
-- 1000+: 큰 PR (분할 권장, 어려우면 description 에 분할 어려운 이유)
+순수 코드 LOC 기준 (자동 생성물 제외):
+
+- **≤ 200 lines** — 이상적 (90% 확률로 1시간 내 review 완료, 결함 검출률 76%)
+- **200~500** — 중간 (분할 검토)
+- **500+** — 큰 PR (분할 권장, 어려우면 description 에 사유)
+
+분할 단위 권장:
+
+- dbt 의 "PR 1개 = 1 클래스 + 단위 테스트" 패턴
+- 본 프로젝트의 Task 단위 (Day 안의 Task 2.1 / 2.2 / 2.3 등)
+- review fix 는 그 fix 가 발견된 본 PR 안에 포함 (별도 PR 로 빼지 않음)
+
+LOC 카운트 제외 항목:
+
+- `uv.lock` / `package-lock.json` 등 자동 생성물
+- plan 본문 동기화 / docs 변경 (review 부담 적음)
+
+출처: [optimal-pull-request-size](https://smallbusinessprogramming.com/optimal-pull-request-size/)
 
 ### Merge 정책
 
