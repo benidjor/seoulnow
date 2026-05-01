@@ -1427,6 +1427,7 @@ def parse_subway_payload(payload: dict[str, Any]) -> list[SubwayCongestionEvent]
         try:
             api_ts = datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
         except ValueError:
+            log.debug("skip_bad_response_time", raw=ts_raw)
             continue
         out.append(
             SubwayCongestionEvent(
@@ -1461,37 +1462,51 @@ def run(lines: list[str]) -> None:
 
     def _on_signal(_signum, _frame):
         stop["flag"] = True
+        log.info("shutdown signal received")
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
 
-    with httpx.Client() as client:
-        while not stop["flag"]:
-            cycle_start = time.monotonic()
-            for line in lines:
-                try:
-                    payload = fetch_subway(client, s.seoul_subway_api_key, line)
-                except Exception as e:
-                    log.warning("fetch_failed", line=line, error=str(e))
-                    continue
-                events = parse_subway_payload(payload)
-                for event in events:
-                    produce_json(
-                        producer,
-                        topic=TOPIC,
-                        key=event.kafka_key(),
-                        value=event.model_dump(mode="json"),
-                        headers=event.kafka_headers(),
-                    )
-                log.info("produced_batch", line=line, count=len(events))
-            producer.flush(timeout=10)
+    try:
+        with httpx.Client() as client:
+            while not stop["flag"]:
+                cycle_start = time.monotonic()
+                for line in lines:
+                    try:
+                        payload = fetch_subway(client, s.seoul_subway_api_key, line)
+                    except httpx.HTTPStatusError as e:
+                        # API 키가 URL 경로에 평문으로 박히므로 str(e) / URL 노출 금지
+                        log.warning("fetch_failed_http", line=line, status=e.response.status_code)
+                        continue
+                    except Exception as e:
+                        log.warning("fetch_failed", line=line, error=type(e).__name__)
+                        continue
+                    events = parse_subway_payload(payload)
+                    if not events:
+                        # errorMessage 코드 / responseTime 파싱 실패 / 빈 CongestionInfo 등
+                        log.warning("parse_returned_empty", line=line)
+                        continue
+                    for event in events:
+                        produce_json(
+                            producer,
+                            topic=TOPIC,
+                            key=event.kafka_key(),
+                            value=event.model_dump(mode="json"),
+                            headers=event.kafka_headers(),
+                        )
+                    log.info("produced_batch", line=line, count=len(events))
+                # 매 cycle 즉시 broker commit. finally 의 flush 는 예외 / 비정상 경로 방어용
+                producer.flush(timeout=10)
 
-            elapsed = time.monotonic() - cycle_start
-            sleep_for = max(0, s.subway_poll_interval_sec - elapsed)
-            for _ in range(int(sleep_for)):
-                if stop["flag"]:
-                    break
-                time.sleep(1)
+                elapsed = time.monotonic() - cycle_start
+                sleep_for = max(0, s.subway_poll_interval_sec - elapsed)
+                for _ in range(int(sleep_for)):
+                    if stop["flag"]:
+                        break
+                    time.sleep(1)
+    finally:
+        # 예외 / 정상 종료 모두 flush 보장. confluent_kafka.Producer 는 close() 없음 — flush 로 충분
+        producer.flush(timeout=10)
 
 
 if __name__ == "__main__":
