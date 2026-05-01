@@ -747,7 +747,7 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "confluent-kafka>=2.5",
-    "tenacity>=9.0",
+    "tenacity>=8.2",
     "python-dotenv>=1.0",
     "structlog>=24.1",
     "duckdb>=1.1",
@@ -790,6 +790,10 @@ addopts = "-ra -q"
 pythonpath = ["src"]
 ```
 
+> **버전 메모 (Day 2 구현 시 발견)**: `tenacity>=8.2` 는 `pyiceberg 0.7.x` 의 `tenacity<9.0` 제약을 반영한 값. `flink` extra 의 `apache-flink==1.20.0` 이 `apache-beam<2.49` → `pyarrow<12` 를 끌어와 `pyiceberg>=0.8` (`pyarrow>=14`) 와 동시 resolve 불가 → `pyiceberg 0.7.x` 가 고정되고 그 결과 `tenacity<9` 가 강제됨. retry API 는 8.x / 9.x 동일이라 코드 영향 없음.
+
+> **보안 메모 (Day 2 review 반영)**: `minio_password` 는 `SecretStr` 로 선언해 `repr(settings)` / `model_dump()` 시 평문 노출을 차단한다. 실제 자격증명이 필요한 사용처 (MinIO / boto3 클라이언트 초기화) 에서는 `.get_secret_value()` 로 꺼낸다. `seoul_openapi_key` / `subway_api_key` 는 빈 문자열 default 의 fail-fast 패턴이라 본 시점에서는 `str` 유지.
+
 - [ ] **Step 2: src/platform_common/__init__.py 작성**
 
 ```python
@@ -808,7 +812,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -832,7 +836,7 @@ class Settings(BaseSettings):
     minio_endpoint: str = Field(default="http://localhost:9000", alias="MINIO_ENDPOINT")
     minio_region: str = Field(default="us-east-1", alias="MINIO_REGION")
     minio_user: str = Field(default="minioadmin", alias="MINIO_ROOT_USER")
-    minio_password: str = Field(default="minioadmin", alias="MINIO_ROOT_PASSWORD")
+    minio_password: SecretStr = Field(default=SecretStr("minioadmin"), alias="MINIO_ROOT_PASSWORD")
     iceberg_warehouse_bucket: str = Field(default="seoul-warehouse", alias="ICEBERG_WAREHOUSE_BUCKET")
 
     lakekeeper_url: str = Field(default="http://localhost:8181", alias="LAKEKEEPER_URL")
@@ -1639,7 +1643,7 @@ def register_iceberg_catalog(t_env: TableEnvironment, catalog_alias: str = "ice"
       'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
       's3.endpoint' = '{s.minio_endpoint}',
       's3.access-key-id' = '{s.minio_user}',
-      's3.secret-access-key' = '{s.minio_password}',
+      's3.secret-access-key' = '{s.minio_password.get_secret_value()}',
       's3.path-style-access' = 'true',
       's3.region' = '{s.minio_region}'
     )
@@ -2452,7 +2456,7 @@ def _duckdb_with_iceberg() -> duckdb.DuckDBPyConnection:
         f"""CREATE OR REPLACE SECRET (
             TYPE S3,
             KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password}',
+            SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{s.minio_endpoint.replace("http://", "")}',
             URL_STYLE 'path', USE_SSL false, REGION '{s.minio_region}'
         )"""
@@ -2539,7 +2543,7 @@ def main() -> None:
         f"""CREATE OR REPLACE SECRET (
             TYPE S3,
             KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password}',
+            SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{s.minio_endpoint.replace("http://", "")}',
             URL_STYLE 'path', USE_SSL false, REGION '{s.minio_region}'
         )"""
