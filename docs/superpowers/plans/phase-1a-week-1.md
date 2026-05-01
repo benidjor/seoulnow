@@ -1643,7 +1643,7 @@ def register_iceberg_catalog(t_env: TableEnvironment, catalog_alias: str = "ice"
       'io-impl' = 'org.apache.iceberg.aws.s3.S3FileIO',
       's3.endpoint' = '{s.minio_endpoint}',
       's3.access-key-id' = '{s.minio_user}',
-      's3.secret-access-key' = '{s.minio_password}',
+      's3.secret-access-key' = '{s.minio_password.get_secret_value()}',
       's3.path-style-access' = 'true',
       's3.region' = '{s.minio_region}'
     )
@@ -2456,7 +2456,7 @@ def _duckdb_with_iceberg() -> duckdb.DuckDBPyConnection:
         f"""CREATE OR REPLACE SECRET (
             TYPE S3,
             KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password}',
+            SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{s.minio_endpoint.replace("http://", "")}',
             URL_STYLE 'path', USE_SSL false, REGION '{s.minio_region}'
         )"""
@@ -2543,7 +2543,7 @@ def main() -> None:
         f"""CREATE OR REPLACE SECRET (
             TYPE S3,
             KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password}',
+            SECRET '{s.minio_password.get_secret_value()}',
             ENDPOINT '{s.minio_endpoint.replace("http://", "")}',
             URL_STYLE 'path', USE_SSL false, REGION '{s.minio_region}'
         )"""
