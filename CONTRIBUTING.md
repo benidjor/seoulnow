@@ -46,6 +46,7 @@ Refs: <plan/spec 경로 또는 issue>
 - "왜" 중심 (무엇은 diff 가 보여줌)
 - bullet (`-`) 자유롭게
 - 리뷰가 발견한 이슈를 fix 한 commit 은 리뷰 코멘트 요지 / 재현 방법 / 해결 방식을 명시
+- 모든 commit 의 message body 끝에 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer 를 박는다 (Day 2 부터 적용)
 
 ### 예시
 
