@@ -126,6 +126,7 @@ def run(area_codes: dict[str, str]) -> None:
                         headers=event.kafka_headers(),
                     )
                     log.info("produced", topic=TOPIC, area=name, congest=event.congest_level)
+                # 매 cycle 즉시 broker commit. finally 의 flush 는 예외 / 비정상 경로 방어용
                 producer.flush(timeout=10)
 
                 elapsed = time.monotonic() - cycle_start
