@@ -43,7 +43,7 @@ class SubwayCongestionEvent(BaseModel):
     direction: str | None = None              # 상행 / 하행 / 내선 / 외선
     congestion_score: float | None = None     # 0~150 류 (API 정의 따름)
     congestion_level: str | None = None       # 여유/보통/주의/혼잡 류
-    api_response_ts: datetime
+    api_response_ts: datetime  # 지하철 API 의 발행 시각 (KST 가정, naive datetime)
 
     def kafka_key(self) -> str:
         return f"{self.line_name}:{self.station_code}"
