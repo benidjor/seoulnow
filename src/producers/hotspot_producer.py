@@ -54,9 +54,9 @@ def parse_hotspot_payload(payload: dict[str, Any], area_code: str) -> HotspotEve
     if not isinstance(citydata, dict):
         return None
 
-    live = _unwrap_first(citydata.get("LIVE_PPLTN_STTS")) or {}
-    road = (_unwrap_first(citydata.get("ROAD_TRAFFIC_STTS")).get("AVG_ROAD_DATA")) or {}
-    weather = _unwrap_first(citydata.get("WEATHER_STTS")) or {}
+    live = _unwrap_first(citydata.get("LIVE_PPLTN_STTS"))
+    road = _unwrap_first(_unwrap_first(citydata.get("ROAD_TRAFFIC_STTS")).get("AVG_ROAD_DATA"))
+    weather = _unwrap_first(citydata.get("WEATHER_STTS"))
 
     pttm = live.get("PPLTN_TIME")
     if not pttm:
