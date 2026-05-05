@@ -963,7 +963,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="min-h-full">{children}</div>
         <footer className="px-4 py-2 text-xs text-zinc-500 border-t border-zinc-800">
-          서울 도시데이터 · 지하철 혼잡도 OpenAPI 기반 ·{' '}
+          서울 도시데이터 · 지하철 도착정보 OpenAPI 기반 ·{' '}
           <a className="underline" href="/privacy">개인정보 처리방침</a>
         </footer>
       </body>
@@ -2447,7 +2447,7 @@ git commit -m "feat: iceberg compaction + cost report (1번 closure 증거)"
 flowchart LR
   subgraph "이종 소스 3종 (Phase 1A)"
     A1[서울 도시데이터<br/>OpenAPI · 5분]
-    A2[지하철 혼잡도<br/>OpenAPI · 30~60초]
+    A2[지하철 도착정보<br/>OpenAPI · 30~60초]
     A3[Postgres places<br/>OLTP]
   end
 
@@ -2587,7 +2587,7 @@ git commit -m "docs: architecture + data lineage diagrams (mermaid)"
 | 공개 도메인 | https://seoul-citydata.pages.dev |
 | 데이터 신선도 SLO | **p95 < 7분** (실측: p50 3분 12초 / p95 5분 41초 / max 6분 53초) |
 | 운영 비용 | **월 $0~$0.83** (도메인 사용 시) |
-| 이종 데이터 소스 | 3종 (서울 도시데이터 + 지하철 혼잡도 + Postgres CDC) |
+| 이종 데이터 소스 | 3종 (서울 도시데이터 + 지하철 도착정보 + Postgres CDC) |
 | Kafka 토픽 | 4개 |
 | Iceberg 테이블 | 7개 (Bronze 3 + Silver 3 + Gold 4) |
 | dbt 테스트 | 6개 (5 generic + 1 singular) |
@@ -2830,7 +2830,7 @@ collect_freshness_metrics      (DuckDB query → XCom push: {p50, p95, p99, samp
 ```markdown
 # Seoul Citydata Platform
 
-서울 공공 실시간 데이터(도시데이터·지하철 혼잡도) + Postgres CDC + (Phase 1B) 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리·검증하는 1인 운영 데이터 플랫폼.
+서울 공공 실시간 데이터(도시데이터·지하철 도착정보) + Postgres CDC + (Phase 1B) 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리·검증하는 1인 운영 데이터 플랫폼.
 
 - 공개 데모: https://seoul-citydata.pages.dev
 - Phase 1A 포트폴리오 (6~7p, Airflow 페이지 포함): [`docs/portfolio/phase1a_v1.md`](./docs/portfolio/phase1a_v1.md)

@@ -12,7 +12,7 @@
 
 **전제 (Day 0 완료 항목):**
 - 서울 OpenAPI 키 발급 완료 (`SEOUL_OPENAPI_KEY`)
-- 서울교통공사 실시간 지하철 혼잡도 API 키 발급 완료 (`SEOUL_SUBWAY_API_KEY`)
+- 서울 열린데이터광장 실시간 지하철 도착정보 API 키 발급 완료 (`SEOUL_SUBWAY_API_KEY`)
 - macOS 에 Docker Desktop 또는 colima 설치 + 8GB 이상 메모리 할당
 - Python 3.11+, uv (또는 poetry), Node 20+ 설치
 - GitHub repo 생성 (`seoul-citydata-platform` public, `main` branch)
@@ -143,7 +143,7 @@ seoul-citydata-platform/
 ```markdown
 # Seoul Citydata Platform
 
-서울 공공 실시간 데이터(도시데이터·지하철 혼잡도) 와 Postgres CDC, 익명 사용자 행동 로그를 Kafka 메시지 버스로 통합하고 PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions 로 처리하는 1인 운영 데이터 플랫폼.
+서울 공공 실시간 데이터(도시데이터·지하철 도착정보) 와 Postgres CDC, 익명 사용자 행동 로그를 Kafka 메시지 버스로 통합하고 PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions 로 처리하는 1인 운영 데이터 플랫폼.
 
 ## Quick Start (로컬 docker-compose)
 
@@ -723,7 +723,7 @@ git commit -m "feat: lakekeeper warehouse bootstrap script"
 
 ---
 
-## Day 2 — Producer 2종 (도시데이터 + 지하철 혼잡도) → Kafka
+## Day 2 — Producer 2종 (도시데이터 + 지하철 도착정보) → Kafka
 
 **Day 2 목표 (spec §6-1):** Python producer 2개가 서울 OpenAPI 폴링 → `seoul.hotspot.congestion.v1` / `seoul.transit.subway.v1` 토픽에 메시지를 발행한다. **메시지에 `api_response_ts` 헤더를 첨부**해 Day 4 SLO 측정의 시작점을 마련한다 (spec §6-2).
 
@@ -1286,7 +1286,7 @@ git commit -m "feat: hotspot producer with api_response_ts header"
 
 ---
 
-### Task 2.3: 지하철 혼잡도 producer (TDD)
+### Task 2.3: 지하철 도착정보 producer (TDD)
 
 **Files:**
 - Create: `tests/fixtures/seoul_subway_sample.json`
@@ -1295,7 +1295,7 @@ git commit -m "feat: hotspot producer with api_response_ts header"
 
 - [ ] **Step 1: 샘플 응답 fixture**
 
-서울교통공사 실시간 지하철 혼잡도 API 는 노선/역/방향/혼잡도 score 를 반환. 응답 포맷이 공급자에 따라 다를 수 있으므로 본 plan 은 일반화된 키 사용. 실제 응답 도착 시 `parse_subway_payload` 의 키 매핑만 조정하면 됨.
+서울 열린데이터광장 실시간 지하철 도착정보 API 는 호선/역/방향/도착시간 (객차 혼잡도 score 는 도착정보 API 미제공) 를 반환. 응답 포맷이 공급자에 따라 다를 수 있으므로 본 plan 은 일반화된 키 사용. 실제 응답 도착 시 `parse_subway_payload` 의 키 매핑만 조정하면 됨.
 
 `tests/fixtures/seoul_subway_sample.json`:
 
@@ -1532,7 +1532,7 @@ Expected: hotspot 4 + subway 4 = 8개 PASS.
 ```bash
 git add tests/fixtures/seoul_subway_sample.json tests/unit/test_subway_producer.py \
         src/producers/subway_producer.py
-git commit -m "feat: subway congestion producer with api_response_ts header"
+git commit -m "feat: subway arrival producer with api_response_ts header"
 ```
 
 **Day 2 종료 게이트:** `uv run pytest tests/unit/ -q` 8 PASS + 최소 한 개 producer 가 실 토픽으로 1회 발행 성공 (콘솔 컨슈머에서 확인). API 키 미발급 시 fixture 단위 테스트만으로 인정 후 Day 3 진입.

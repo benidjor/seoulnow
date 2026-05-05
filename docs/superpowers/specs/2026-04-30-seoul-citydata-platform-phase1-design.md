@@ -76,7 +76,7 @@
 ### 4-1. 컴포넌트 다이어그램 (이종 소스 4 → 1 버스 → 컨슈머 2)
 
 ```
-[서울 도시데이터 API]  [지하철 혼잡도 API]  [Postgres places]  [Cloudflare Edge API]
+[서울 도시데이터 API]  [지하철 도착정보 API]  [Postgres places]  [Cloudflare Edge API]
         ↓                    ↓                    ↓                    ↓
    hotspot.v1           subway.v1          places.cdc.v1        user.events.v1
                                                                       ↓
@@ -114,7 +114,7 @@
 | 토픽 | 발행 주체 | 갱신 주기 | 시간당 건수 (대략) | 컨슈머 |
 |---|---|---|---|---|
 | `seoul.hotspot.congestion.v1` | Python producer (서울 도시데이터 API 폴링) | 5분 | ~1,440 | PyFlink |
-| `seoul.transit.subway.v1` | Python producer (지하철 혼잡도 API 폴링) | 30초~1분 | ~8,000~16,000 (폴링 주기 의존) | PyFlink |
+| `seoul.transit.subway.v1` | Python producer (지하철 도착정보 API 폴링) | 30초~1분 | ~8,000~16,000 (폴링 주기 의존) | PyFlink |
 | `place.master.cdc.v1` | Debezium (Postgres `places`) | 변경 시 | 거의 없음 | PyFlink |
 | `user.events.v1` (Phase 1B) | Edge API → HTTP receiver → producer | 익명 클릭 | 일 100~1,000 | PyFlink + Workers Cron |
 
@@ -223,7 +223,7 @@
 | Day | 작업 | 산출물 |
 |---|---|---|
 | 1 | Oracle Cloud ARM VM + docker-compose (Kafka KRaft, Postgres, MinIO, Lakekeeper) | 인프라 기동 |
-| 2 | 도시데이터 + 지하철 혼잡도 producer → Kafka 토픽 2개 | Bronze 토픽 흐름 |
+| 2 | 도시데이터 + 지하철 도착정보 producer → Kafka 토픽 2개 | Bronze 토픽 흐름 |
 | 3 | PyFlink Bronze → Silver (스키마 정규화, 핫스팟 region 매핑) → Iceberg via Lakekeeper | Silver 테이블 |
 | 4 | PyFlink Silver → Gold (`fact_hotspot_congestion_5min`) + DuckDB 검증 + **데이터 신선도 SLO 측정 코드** | Gold + SLO 메트릭 |
 | 5 | dbt-core 도입, Silver→Gold 일부 dbt 이관, dbt tests 5~10개, **Airflow 셋업 (LocalExecutor + SQLite, ~700MB)** + **`dbt_full_run` DAG** (TaskGroup + 의존성 + SLA + on_failure_callback), GitHub Actions CI. **Airflow 도입 직후 free 메모리 측정 (80% = 19.2GB 임계 확인)** | CI green + DQ 리포트 + Airflow 첫 DAG |
@@ -369,7 +369,7 @@ Cloudflare Pages Functions / Workers는 TCP 직접 연결이 제한적이므로,
 | # | 항목 | 비용 | 비고 |
 |---|---|---|---|
 | 1 | 서울 열린데이터 광장 API 키 신청 | $0 | ~1 영업일. 즉시 신청. |
-| 2 | 서울교통공사 실시간 지하철 혼잡도 API 키 | $0 | ~1~3 영업일. |
+| 2 | 서울 열린데이터광장 실시간 지하철 도착정보 API 키 | $0 | ~1~3 영업일. |
 | 3 | 공공데이터 인허가 정보(일반음식점·휴게음식점) 다운로드 | $0 | 즉시. Day 6 정적 적재용. |
 | 4 | Oracle Cloud 계정 + PAYG 업그레이드 | $0 | ARM Ampere A1 가용 지역 확인. |
 | 5 | Cloudflare 계정 (Pages + D1 + Workers + Tunnel 활성화) | $0 | |

@@ -10,7 +10,7 @@
 
 ## 0. 한 줄 요약
 
-서울시 공공 실시간 데이터(도시데이터·지하철 혼잡도)와 Postgres CDC, 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고 **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리한다. 운영 비용은 월 $0~$2.
+서울시 공공 실시간 데이터(도시데이터·지하철 도착정보)와 Postgres CDC, 익명 사용자 행동 로그를 **Kafka 메시지 버스**로 통합하고 **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + Airflow + GitHub Actions** 로 처리한다. 운영 비용은 월 $0~$2.
 
 **Phase 1 (14일) = 1A (Day 1~10, 데이터 플랫폼 코어) + 1B (Day 11~14, 익명 실서비스 통합) → Phase 2 (8주, 본격 확장)**. Phase 1A 단독으로도 포트폴리오 6~7페이지 분량 제출 가능 (Airflow 본진 사용 페이지 포함), 1A+1B 통합 시 9~11페이지.
 
@@ -21,7 +21,7 @@
 | 항목 | **Phase 1A (Day 1~10)** | **Phase 1B (Day 11~14)** | Phase 2 (확장, 8주) |
 |------|--------------------------|--------------------------|---------------------|
 | 목표 | 데이터 플랫폼 코어 + 공개 데모 URL | 익명 실서비스 통합 (사용자 행동 토픽 + 북마크 + Web Push) | 본격 풀스택 (실서비스 외부 공개·UGC 별점·Google Places) |
-| 데이터 소스 | 서울 도시데이터 + 지하철 혼잡도 + 공공 인허가(정적) + Postgres CDC | + **`user.events.v1`** (익명 사용자 행동) | + Google Places + UGC 별점 + 버스 위치 |
+| 데이터 소스 | 서울 도시데이터 + 지하철 도착정보 + 공공 인허가(정적) + Postgres CDC | + **`user.events.v1`** (익명 사용자 행동) | + Google Places + UGC 별점 + 버스 위치 |
 | 메시징 | **Kafka KRaft single-node** | (동일) | (동일) |
 | 스트림 처리 | **PyFlink (메인) + Spark batch (Day 9 멱등성 검증 보조)** | (동일) | PyFlink 확정 |
 | 워크플로우 오케스트레이션 | **Airflow (LocalExecutor + SQLite, Day 5~10 본진 사용)** — `dbt_full_run` / `iceberg_maintenance` / `backfill_silver_from_bronze` / `slo_daily_report` 4 DAG | (동일) | + Phase 2 W4~5에 Dagster 추가 검토 (dbt asset 통합) |
@@ -93,7 +93,7 @@
 | 소스 | 용도 | 갱신 주기 | 비용 | 단계 |
 |------|------|----------|------|-------|
 | 서울시 실시간 도시데이터 API (`SeoulRtd`) | 핫스팟 120곳의 혼잡도 단계, 도로 소통, 따릉이, 날씨 | 5분 | $0 | **P1A** |
-| 서울교통공사 실시간 지하철 혼잡도 API | 역사·칸별 혼잡도 | 30초~1분 | $0 | **P1A** |
+| 서울 열린데이터광장 실시간 지하철 도착정보 API | 역사별 도착정보 (호선·역·방향·도착시간, 객차 혼잡도는 도착정보 API 미제공) | 30초~1분 | $0 | **P1A** |
 | 공공데이터 인허가 정보 | 가게 마스터 (이름, 주소, 업종, 영업시간) | 일 1회 배치 (P1은 정적 1회 적재) | $0 | **P1A** |
 | Postgres `places` 테이블 (자체 OLTP) | CDC 데모용 가게 마스터 | 실시간 (Debezium) | $0 | **P1A** |
 | **익명 사용자 행동 로그** (브라우저 → Edge API → HTTP receiver → Kafka) | 클릭, 지도 이동, 북마크, 알림 구독 | 실시간 | $0 | **P1B** |
@@ -280,7 +280,7 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 
 > 상세 16개 항목은 **design.md §10** 참조. 핵심 요약만:
 
-- 즉시 신청 (영업일 소요): 서울 OpenAPI 키 / 지하철 혼잡도 API 키 / 공공데이터 인허가 정보 다운로드
+- 즉시 신청 (영업일 소요): 서울 OpenAPI 키 / 지하철 도착정보 API 키 / 공공데이터 인허가 정보 다운로드
 - 계정 셋업: Oracle Cloud (PAYG 업그레이드 필수) / Cloudflare (Pages·D1·Workers·Tunnel) / GitHub repo
 - 로컬 환경: Docker Desktop or colima / Python 3.11+ / Node 20+
 - 미리 만들어두기: VAPID 키 페어 / 1번 docker-compose.yml 사본 위치 메모 / 1번 Spark MERGE INTO 코드 위치 메모
