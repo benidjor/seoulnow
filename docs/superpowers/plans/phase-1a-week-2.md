@@ -6,7 +6,9 @@
 
 **Architecture:** Week 1 docker-compose 에 `kafka-connect` + Debezium Postgres connector 를 추가하고, `places` 테이블 변경이 `place.master.cdc.v1` 토픽으로 흐른 뒤 PyFlink 가 Iceberg `silver.dim_place` 로 SCD Type 2 골격을 적재한다. Next.js (정적 export) + FastAPI (Cloudflare Tunnel 노출) 으로 메인 지도와 "한가하고 영업 중" 페이지를 띄운다. Day 9 는 Spark batch 컨테이너를 일시 기동해 Iceberg `MERGE INTO` 멱등성 + `rewrite_data_files` Compaction 을 측정해 1번 포트폴리오의 "Dynamic Partition Overwrite 예정 / Compaction 도입 예정" 두 미해결 이슈를 closure 한다. Day 10 에 모든 산출물을 5~6p 포트폴리오 1차 제출본으로 정리한다.
 
-**Tech Stack:** Debezium 2.7 (Postgres connector), Kafka Connect, Apache Spark 3.5 + iceberg-spark-runtime 1.7, Next.js 14 (App Router, static export), Leaflet 1.9 + OpenStreetMap, FastAPI 0.115 + Uvicorn, Cloudflare Pages, Cloudflare Tunnel, mermaid (다이어그램).
+**Tech Stack:** Debezium 2.7 (Postgres connector), Kafka Connect, **Apache Spark 4.0 + iceberg-spark-runtime 1.10** (Day 9 plan-update 시점에 정확한 minor patch 결정 — Spark 4.0 GA 이후 안정 라인), Next.js 14 (App Router, static export), Leaflet 1.9 + OpenStreetMap, FastAPI 0.115 + Uvicorn, Cloudflare Pages, Cloudflare Tunnel, mermaid (다이어그램).
+
+> **JDK 결정 (2026-05-05)**: PyFlink 1.20 / Spark 4.0 / Kafka 4.0 / Iceberg 1.10 모두 Java 17+ 충족 → 로컬 JDK 는 **Eclipse Temurin 17 LTS** 로 통일. Spark 4.0 은 Java 17 minimum (Java 8/11 deprecated), Kafka 4.0 은 Java 17 권장. 단일 JDK 로 모든 워크로드 호환. Day 9 Spark 컨테이너도 동일 base image 라인 (`apache/spark:4.0.0-java17` 계열).
 
 **Spec:** `docs/superpowers/specs/2026-04-30-seoul-citydata-platform-phase1-design.md` 의 §6-1 Day 6~10, §6-3 포트폴리오 5~6p 구조, §8 차별화 서사, §9-1 Day 6/7/9 fallback 트리거.
 
