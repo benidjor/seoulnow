@@ -1,9 +1,10 @@
-"""서울 지하철 실시간 혼잡도 producer.
+"""서울 지하철 실시간 도착정보 producer.
 
 폴링 주기 60초 (SUBWAY_POLL_INTERVAL_SEC).
-실 API endpoint 는 키 발급 시 안내 받음. 본 plan 은 응답 형태가
-{ "errorMessage": {...}, "CongestionInfo": [{...}, ...] } 라고 가정.
-다르면 parse_subway_payload 의 키만 조정.
+endpoint: swopenapi.seoul.go.kr / realtimeStationArrival
+  - 역이름 파라미터 "" → 전체 운행 열차 도착정보 일괄 조회
+  - 일 최대 1,000 회 / 1 회 최대 1,000 건
+응답 최상위 키: errorMessage (성공 시 code="INFO-000") + realtimeArrivalList
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from .schemas import SubwayCongestionEvent
 log = structlog.get_logger()
 
 TOPIC = "seoul.transit.subway.v1"
-SUBWAY_API_BASE = "https://openapi.seoulmetro.co.kr"  # 실제 endpoint 발급 시 교체
+SUBWAY_API_BASE = "http://swopenapi.seoul.go.kr"
 
 
 def _to_float(v: Any) -> float | None:
@@ -36,34 +37,45 @@ def _to_float(v: Any) -> float | None:
         return None
 
 
-def parse_subway_payload(payload: dict[str, Any]) -> list[SubwayCongestionEvent]:
-    err = payload.get("errorMessage", {}) or {}
-    code = err.get("code") or err.get("CODE")
-    if code and code != "INFO-000":
-        return []
+def _unwrap_arrival_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """realtimeStationArrival 응답에서 항목 리스트 반환.
 
-    items = payload.get("CongestionInfo") or payload.get("congestionInfo") or []
+    성공 응답:
+      {"errorMessage": {"status":200, "code":"INFO-000", ...},
+       "realtimeArrivalList": [{...}, ...]}
+    데이터 없음(막차 이후 등):
+      {"status":500, "code":"INFO-200", ...}  ← list 없음
+    """
+    err = payload.get("errorMessage", {}) or {}
+    code = str(err.get("code") or payload.get("code") or "")
+    if code and code not in ("INFO-000", ""):
+        return []
+    return payload.get("realtimeArrivalList") or []
+
+
+def parse_subway_payload(payload: dict[str, Any]) -> list[SubwayCongestionEvent]:
+    items = _unwrap_arrival_list(payload)
     out: list[SubwayCongestionEvent] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        ts_raw = item.get("responseTime") or item.get("RESPONSE_TIME")
+        ts_raw = item.get("recptnDt")
         if not ts_raw:
             continue
         try:
             api_ts = datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
         except ValueError:
-            log.debug("skip_bad_response_time", raw=ts_raw)
+            log.debug("skip_bad_recptn_dt", raw=ts_raw)
             continue
         out.append(
             SubwayCongestionEvent(
-                station_code=str(item.get("stationCode") or item.get("STATION_CD") or ""),
-                station_name=str(item.get("stationName") or item.get("STATION_NM") or ""),
-                line_name=str(item.get("lineName") or item.get("LINE_NM") or ""),
-                train_no=item.get("trainNo") or item.get("TRAIN_NO"),
-                direction=item.get("direction") or item.get("DIR"),
-                congestion_score=_to_float(item.get("congestionScore")),
-                congestion_level=item.get("congestionLevel") or item.get("CONGEST_LVL"),
+                station_code=str(item.get("statnId") or ""),
+                station_name=str(item.get("statnNm") or ""),
+                line_name=str(item.get("subwayId") or ""),
+                train_no=item.get("btrainNo"),
+                direction=item.get("updnLine"),
+                congestion_score=None,   # realtimeStationArrival 미제공
+                congestion_level=None,   # realtimeStationArrival 미제공
                 api_response_ts=api_ts,
             )
         )
@@ -71,14 +83,15 @@ def parse_subway_payload(payload: dict[str, Any]) -> list[SubwayCongestionEvent]
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-def fetch_subway(client: httpx.Client, api_key: str, line: str) -> dict[str, Any]:
-    url = f"{SUBWAY_API_BASE}/api/subway/{api_key}/json/realtimeCongestion/{line}"
+def fetch_subway(client: httpx.Client, api_key: str, station: str) -> dict[str, Any]:
+    url = f"{SUBWAY_API_BASE}/api/subway/{api_key}/json/realtimeStationArrival/1/1000/{station}"
     r = client.get(url, timeout=10.0)
     r.raise_for_status()
     return r.json()
 
 
-def run(lines: list[str]) -> None:
+def run(stations: list[str]) -> None:
+    """stations: 역이름 리스트. [""] 이면 전체 운행 열차 일괄 조회."""
     s = get_settings()
     if not s.seoul_subway_api_key:
         raise SystemExit("SEOUL_SUBWAY_API_KEY not set")
@@ -97,20 +110,20 @@ def run(lines: list[str]) -> None:
         with httpx.Client() as client:
             while not stop["flag"]:
                 cycle_start = time.monotonic()
-                for line in lines:
+                for station in stations:
                     try:
-                        payload = fetch_subway(client, s.seoul_subway_api_key, line)
+                        payload = fetch_subway(client, s.seoul_subway_api_key, station)
                     except httpx.HTTPStatusError as e:
                         # API 키가 URL 경로에 평문으로 박히므로 str(e) / URL 노출 금지
-                        log.warning("fetch_failed_http", line=line, status=e.response.status_code)
+                        log.warning("fetch_failed_http", station=station, status=e.response.status_code)
                         continue
                     except Exception as e:
-                        log.warning("fetch_failed", line=line, error=type(e).__name__)
+                        log.warning("fetch_failed", station=station, error=type(e).__name__)
                         continue
                     events = parse_subway_payload(payload)
                     if not events:
-                        # errorMessage 코드 / responseTime 파싱 실패 / 빈 CongestionInfo 등
-                        log.warning("parse_returned_empty", line=line)
+                        # 막차 이후 INFO-200 / errorMessage 코드 오류 등
+                        log.warning("parse_returned_empty", station=station or "(all)")
                         continue
                     for event in events:
                         produce_json(
@@ -120,7 +133,7 @@ def run(lines: list[str]) -> None:
                             value=event.model_dump(mode="json"),
                             headers=event.kafka_headers(),
                         )
-                    log.info("produced_batch", line=line, count=len(events))
+                    log.info("produced_batch", station=station or "(all)", count=len(events))
                 # 매 cycle 즉시 broker commit. finally 의 flush 는 예외 / 비정상 경로 방어용
                 producer.flush(timeout=10)
 
@@ -137,6 +150,6 @@ def run(lines: list[str]) -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    DEFAULT_LINES = ["2호선", "9호선"]
-    run(DEFAULT_LINES)
+    DEFAULT_STATIONS = [""]   # 빈 문자열 = 전체 운행 열차 일괄 조회
+    run(DEFAULT_STATIONS)
     sys.exit(0)
