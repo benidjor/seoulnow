@@ -17,6 +17,12 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # single-node 환경 — internal 토픽 (__consumer_offsets / __transaction_state) 의
+      # default replication factor 3 이라 broker 1개 환경에서 토픽 생성 stuck 발생.
+      # 1로 명시해 KRaft single-node 에서 정상 동작.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
