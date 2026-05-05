@@ -28,9 +28,17 @@ SEOUL_API_BASE = "http://openapi.seoul.go.kr:8088"
 
 
 def _unwrap_first(x: Any) -> dict[str, Any]:
-    """list 이면 첫 원소, dict 이면 그대로, 그 외는 빈 dict 반환."""
+    """list 이면 첫 원소, dict 이면 그대로, 그 외는 빈 dict 반환.
+
+    첫 원소가 dict 가 아닌 경우 structured warning 을 남겨 스키마
+    드리프트를 즉시 감지할 수 있게 한다.
+    """
     if isinstance(x, list):
-        return x[0] if x and isinstance(x[0], dict) else {}
+        if x and isinstance(x[0], dict):
+            return x[0]
+        if x:
+            log.warning("stts_unexpected_first_element", type=type(x[0]).__name__)
+        return {}
     if isinstance(x, dict):
         return x
     return {}
