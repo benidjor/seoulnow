@@ -18,6 +18,8 @@ dependencies = [
 [project.optional-dependencies]
 flink = [
     "apache-flink==1.20.0",
+    "setuptools>=65,<70",
+    "wheel>=0.41",
 ]
 dev = [
     "pytest>=8.3",
@@ -29,6 +31,7 @@ dev = [
 
 [tool.uv]
 package = true
+no-build-isolation-package = ["apache-beam"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/platform_common", "src/producers", "src/flink_jobs"]

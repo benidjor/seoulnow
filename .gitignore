@@ -55,3 +55,6 @@ dbt_packages/
 *.local
 scratch/
 tmp/
+
+# Flink connector JARs (downloaded locally)
+infra/flink/jars/*.jar
