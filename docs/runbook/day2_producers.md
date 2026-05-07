@@ -2,6 +2,10 @@
 
 서울 OpenAPI 두 종 (도시데이터 핫스팟 + 지하철 도착정보) 을 Kafka 토픽으로 발행하는 host-측 Python producer 운영 매뉴얼.
 
+> **이전 day**: [`day1_infra.md`](./day1_infra.md) (Day 1 인프라)
+>
+> **이후 day**: [`day3_pyflink.md`](./day3_pyflink.md) → [`day4_silver_fix.md`](./day4_silver_fix.md)
+
 > **2026-05-05 갱신** — subway producer 의 endpoint pivot (`realtimeCongestion` → `realtimeStationArrival`) 반영. 무료 실시간 객차 혼잡도 API 부재 사유는 [`2026-05-05-day-3-pre-entry.md` §2](../portfolio/troubleshooting/2026-05-05-day-3-pre-entry.md#2-subway-url-placeholder--실시간-객차-혼잡도-api-부재) 참조. 지역의 인구 혼잡도는 hotspot producer (도시데이터 API) 가 담당.
 
 ## 사전 조건
