@@ -42,6 +42,9 @@ def build_env() -> TableEnvironment:
     t_env.get_config().set("pipeline.jars", _classpath())
     t_env.get_config().set("parallelism.default", "1")
     t_env.get_config().set("execution.checkpointing.interval", "30 s")
+    # SQL hint /*+ OPTIONS(...) */ 는 default 비활성. silver INSERT 의
+    # streaming/monitor-interval hint 적용을 위해 명시적으로 enable.
+    t_env.get_config().set("table.dynamic-table-options.enabled", "true")
     # restart-strategy 는 default (fixed-delay 무한 retry, streaming 표준).
     # 일시 fail 자동 흡수. fail diagnose 가 필요할 때만 'none' 으로 override.
     return t_env
@@ -200,7 +203,7 @@ def run() -> None:
           b.precipitation,
           b.api_response_ts,
           CURRENT_TIMESTAMP AS silver_arrival_ts
-        FROM ice.bronze.hotspot_raw b
+        FROM ice.bronze.hotspot_raw /*+ OPTIONS('streaming'='true', 'monitor-interval'='30s') */ b
         CROSS JOIN LATERAL TABLE(enrich_hotspot(b.area_code, b.congest_level))
           AS e(district, gu_code, latitude, longitude, congest_level_score)
         """

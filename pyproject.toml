@@ -21,7 +21,7 @@ dependencies = [
 # build 단계에서 main venv 의 setuptools<70 + wheel 로 우회한다.
 # (자세한 사유 — commit 54f4399 + tool.uv.no-build-isolation-package 설정 참고.)
 flink = [
-    "apache-flink==1.19.2",
+    "apache-flink==1.20.0",
     "setuptools>=65,<70",
     "wheel>=0.41",
 ]

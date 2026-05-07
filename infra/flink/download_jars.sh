@@ -4,9 +4,9 @@ set -euo pipefail
 JAR_DIR="$(dirname "$0")/jars"
 mkdir -p "$JAR_DIR"
 
-FLINK_VER=1.19.2
+FLINK_VER=1.20.0
 FLINK_MINOR="${FLINK_VER%.*}"
-ICEBERG_VER=1.6.1
+ICEBERG_VER=1.7.1
 KAFKA_VER=3.3.0-${FLINK_MINOR}
 HADOOP_VER=3.3.4
 
