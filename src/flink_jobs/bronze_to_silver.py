@@ -45,6 +45,15 @@ def build_env() -> TableEnvironment:
     # SQL hint /*+ OPTIONS(...) */ 는 default 비활성. silver INSERT 의
     # streaming/monitor-interval hint 적용을 위해 명시적으로 enable.
     t_env.get_config().set("table.dynamic-table-options.enabled", "true")
+    # codahale/dropwizard metrics 클래스 로딩 충돌 회피.
+    # iceberg-flink-runtime jar 안의 com.codahale.metrics 가 PyFlink JVM
+    # system classpath 의 동일 클래스와 ChildFirstClassLoader 에서 LinkageError
+    # 를 일으켜 IcebergStreamWriter.prepareSnapshotPreBarrier 단계 매번 fail
+    # → silent commit fail. parent-first 로 강제해 단일 loader 가 처리.
+    t_env.get_config().set(
+        "classloader.parent-first-patterns.additional",
+        "com.codahale.metrics.;io.dropwizard.metrics.",
+    )
     # restart-strategy 는 default (fixed-delay 무한 retry, streaming 표준).
     # 일시 fail 자동 흡수. fail diagnose 가 필요할 때만 'none' 으로 override.
     return t_env

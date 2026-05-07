@@ -93,7 +93,7 @@ services:
     restart: "no"
 
   lakekeeper-migrate:
-    image: quay.io/lakekeeper/catalog:v0.5
+    image: quay.io/lakekeeper/catalog:v0.12.1
     container_name: scp-lakekeeper-migrate
     depends_on:
       postgres:
@@ -107,7 +107,7 @@ services:
     restart: "no"
 
   lakekeeper:
-    image: quay.io/lakekeeper/catalog:v0.5
+    image: quay.io/lakekeeper/catalog:v0.12.1
     container_name: scp-lakekeeper
     depends_on:
       postgres:
@@ -127,7 +127,7 @@ services:
       RUST_LOG: info
     command: ["serve"]
     healthcheck:
-      test: ["CMD", "/home/nonroot/iceberg-catalog", "healthcheck", "-s"]
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck", "-s"]
       interval: 10s
       timeout: 5s
       retries: 18
