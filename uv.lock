@@ -221,7 +221,7 @@ wheels = [
 
 [[package]]
 name = "apache-flink"
-version = "1.20.0"
+version = "1.19.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apache-beam" },
@@ -241,18 +241,18 @@ dependencies = [
     { name = "requests" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/85/830c518b8a80095c371d3af5143c90d51a21958f1d0c4095ce799445bcfe/apache-flink-1.20.0.tar.gz", hash = "sha256:2f93ff09b911c484fda4c4cf0f175a609d73017ba63d7cb21bd59e53c56fd64b", size = 1519192, upload-time = "2024-08-01T04:21:28.621Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/50/1e7d2353068fab7c7b52c054e2ce33f9aa4504bbaab5549f5c53c140b6e2/apache-flink-1.19.2.tar.gz", hash = "sha256:73162c8bee00a711fe3b15430b9a95056556f67d7ca96a18e1c9219040b7a627", size = 1517034, upload-time = "2025-02-13T14:30:56.403Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/72/84/c55be6b247d953dab7b50d9639294965469174c01ef8b46a59a7a1b0d50b/apache_flink-1.20.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:05bd6fee6292d5f4d84bda6ebedf954ca434787cdb14035609a56c2e57850606", size = 2565134, upload-time = "2024-08-01T04:14:57.301Z" },
-    { url = "https://files.pythonhosted.org/packages/c3/7d/569ae9990c9824b17e477e541e4aa816cbb2e3e691d9e070d61979f36c2c/apache_flink-1.20.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:3d013c0ffcfa5cf4491c233d1cee392ae4c7d9262851e01249bad0d6cb2d232b", size = 2474999, upload-time = "2024-08-01T04:15:11.752Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/83/52fe4520f102d2743527c39fd7e5cdd40ef6c97481eea34d82ce95754780/apache_flink-1.20.0-cp311-cp311-manylinux1_x86_64.whl", hash = "sha256:cb1bbe4a0a50d0bccc9c452695c4d10b4f1540667b5a17bff6963173a2f5261e", size = 2636527, upload-time = "2024-08-01T04:15:22.676Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/06/f6806055d408c72a2b2218131c1a2603da93e7a5105f1b00596dce27a277/apache_flink-1.19.2-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:31f8c7f98b3dc5519fdc66920df1cadb4141ba5e80f25fb7532432866d7d258a", size = 2497406, upload-time = "2025-02-12T19:13:18.647Z" },
+    { url = "https://files.pythonhosted.org/packages/18/d9/be263b2635dcf232020b32cfdfade960a1d1a39e1013dbc1edd2fe1dfc29/apache_flink-1.19.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:10d84cfbc7f697a2866b0605ddc0470382e5e03cd8f699c0da66eeff16de376d", size = 2413045, upload-time = "2025-02-12T19:13:22.071Z" },
+    { url = "https://files.pythonhosted.org/packages/77/b8/dbe22eb65fe67cf1601c3fea776d28028c34c23a2d7a9269c5a182cecce7/apache_flink-1.19.2-cp311-cp311-manylinux1_x86_64.whl", hash = "sha256:c95b7ee15fe464b9db8be7e130421dbd1de700ed78db0d14449c6d19338958b2", size = 2564254, upload-time = "2025-02-12T19:13:26.836Z" },
 ]
 
 [[package]]
 name = "apache-flink-libraries"
-version = "1.20.0"
+version = "1.19.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1f/31/80cfa34b6a53a5c19d66faf3e7d29cb0689a69c128a381e584863eb9669a/apache-flink-libraries-1.20.0.tar.gz", hash = "sha256:808b381151c51d988c8fe5b5ae59d944d6e61d8193ee6832064f7ca14c88a583", size = 231542248, upload-time = "2024-08-01T04:21:05.279Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3a/5b/35ef2814340246d0d89a0c56345c8a6fef813cb9615c691fe33dfbc0d2b8/apache-flink-libraries-1.19.2.tar.gz", hash = "sha256:2bd8577a011cd6673d3e59d45fff79621258ce54e57298d07064c54928b47b17", size = 230368697, upload-time = "2025-02-13T14:29:41.306Z" }
 
 [[package]]
 name = "attrs"
@@ -1969,7 +1969,7 @@ flink = [
 
 [package.metadata]
 requires-dist = [
-    { name = "apache-flink", marker = "extra == 'flink'", specifier = "==1.20.0" },
+    { name = "apache-flink", marker = "extra == 'flink'", specifier = "==1.19.2" },
     { name = "confluent-kafka", specifier = ">=2.5" },
     { name = "duckdb", specifier = ">=1.1" },
     { name = "httpx", specifier = ">=0.27" },
