@@ -59,7 +59,38 @@ def get_default_project_id(client: httpx.Client) -> str:
     return projects[0]["project-id"]
 
 
-def warehouse_exists(client: httpx.Client, project_id: str) -> bool:
+# Lakekeeper v0.12 의 storage-profile schema. 핵심 필드:
+# - flavor: "s3-compat" (v0.5 의 "minio" 대체. v0.12 에서 minio 는 invalid)
+# - remote-signing-enabled: False — default true 면 LoadTable response 에
+#   s3.signer=S3V4RestSigner 가 박혀 client (PyFlink/pyiceberg) 가 sign API
+#   호출 시도 → auth disable 환경에서 SignError. false 로 강제해 client 가
+#   직접 access-key 인증.
+# storage-credential schema 도 v0.5 의 aws-access-key-id → v0.12 access-key-id
+# 로 prefix 변경.
+def _storage_profile() -> dict:
+    return {
+        "type": "s3",
+        "bucket": BUCKET,
+        "key-prefix": "warehouse",
+        "endpoint": MINIO_ENDPOINT,
+        "region": MINIO_REGION,
+        "path-style-access": True,
+        "flavor": "s3-compat",
+        "sts-enabled": False,
+        "remote-signing-enabled": False,
+    }
+
+
+def _storage_credential() -> dict:
+    return {
+        "type": "s3",
+        "credential-type": "access-key",
+        "access-key-id": MINIO_USER,
+        "secret-access-key": MINIO_PASS,
+    }
+
+
+def get_warehouse_id(client: httpx.Client, project_id: str) -> str | None:
     r = client.get(
         f"{LAKEKEEPER_URL}/management/v1/warehouse",
         params={"project-id": project_id},
@@ -67,30 +98,16 @@ def warehouse_exists(client: httpx.Client, project_id: str) -> bool:
     r.raise_for_status()
     for wh in r.json().get("warehouses", []):
         if wh["name"] == WAREHOUSE_NAME:
-            return True
-    return False
+            return wh["warehouse-id"]
+    return None
 
 
 def create_warehouse(client: httpx.Client, project_id: str) -> None:
     payload = {
         "warehouse-name": WAREHOUSE_NAME,
         "project-id": project_id,
-        "storage-profile": {
-            "type": "s3",
-            "bucket": BUCKET,
-            "key-prefix": "warehouse",
-            "endpoint": MINIO_ENDPOINT,
-            "region": MINIO_REGION,
-            "path-style-access": True,
-            "flavor": "minio",
-            "sts-enabled": False,
-        },
-        "storage-credential": {
-            "type": "s3",
-            "credential-type": "access-key",
-            "aws-access-key-id": MINIO_USER,
-            "aws-secret-access-key": MINIO_PASS,
-        },
+        "storage-profile": _storage_profile(),
+        "storage-credential": _storage_credential(),
     }
     r = client.post(f"{LAKEKEEPER_URL}/management/v1/warehouse", json=payload)
     if r.status_code >= 400:
@@ -99,14 +116,36 @@ def create_warehouse(client: httpx.Client, project_id: str) -> None:
     print(f"created warehouse '{WAREHOUSE_NAME}'")
 
 
+def update_warehouse_storage(client: httpx.Client, warehouse_id: str) -> None:
+    """기존 warehouse 의 storage-profile + credential 을 강제 동기화.
+
+    v0.5 시절 만든 warehouse 가 v0.12 환경에서도 remote-signing-enabled=false
+    설정을 갖도록 멱등 보정. spec 변경 시 main 호출만으로 일관 상태 유지.
+    """
+    payload = {
+        "storage-profile": _storage_profile(),
+        "storage-credential": _storage_credential(),
+    }
+    r = client.post(
+        f"{LAKEKEEPER_URL}/management/v1/warehouse/{warehouse_id}/storage",
+        json=payload,
+    )
+    if r.status_code >= 400:
+        print(f"update warehouse storage failed: {r.status_code} {r.text}", file=sys.stderr)
+        r.raise_for_status()
+    print(f"updated warehouse '{WAREHOUSE_NAME}' storage-profile (remote-signing-enabled=false)")
+
+
 def main() -> None:
     with httpx.Client(timeout=30.0) as client:
         ensure_server_bootstrapped(client)
         project_id = get_default_project_id(client)
-        if warehouse_exists(client, project_id):
-            print(f"warehouse '{WAREHOUSE_NAME}' already exists, skipping")
-            return
-        create_warehouse(client, project_id)
+        warehouse_id = get_warehouse_id(client, project_id)
+        if warehouse_id is None:
+            create_warehouse(client, project_id)
+        else:
+            print(f"warehouse '{WAREHOUSE_NAME}' exists ({warehouse_id}), syncing storage profile")
+            update_warehouse_storage(client, warehouse_id)
 
 
 if __name__ == "__main__":

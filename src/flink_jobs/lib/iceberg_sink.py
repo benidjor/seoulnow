@@ -25,8 +25,7 @@ def register_iceberg_catalog(t_env: TableEnvironment, catalog_alias: str = "ice"
       's3.access-key-id' = '{s.minio_user}',
       's3.secret-access-key' = '{s.minio_password.get_secret_value()}',
       's3.path-style-access' = 'true',
-      's3.region' = '{s.minio_region}',
-      'header.X-Iceberg-Access-Delegation' = 'vended-credentials'
+      's3.region' = '{s.minio_region}'
     )
     """
     # Flink 1.19 의 SQL parser 는 CREATE CATALOG IF NOT EXISTS 미지원
