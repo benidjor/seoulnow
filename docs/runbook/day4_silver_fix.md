@@ -195,16 +195,20 @@ silver 도 같은 방식. silver 의 `added-records` 가 bronze 의 새 row 와 
 
 ## 후속 작업 link
 
-- Day 4 의 다른 task (Postgres CDC Debezium 등): 별도 runbook 예정
-- Day 5 dbt + Airflow: 별도 runbook 예정
+- **Day 4 Task 4.1~4.3 (Silver→Gold 5분 텀블링 + 데이터 신선도 SLO + DuckDB 검증)**: [`day4_silver_to_gold.md`](./day4_silver_to_gold.md) — 본 runbook 의 silver fix 위에서 진행된 후속. plan deviation 6건 진단도 포함
+- Day 5 dbt + Airflow: 별도 runbook 예정 (진입 전 `lib/env.py` + `lib/classpath.py` + `lib/duckdb_iceberg.py` 3건 추출 선행)
+- Day 6 Postgres CDC Debezium: 별도 runbook 예정 (spec §6-1 기준 — 본 runbook 의 silver fix 흐름과 무관)
 - Day 9 Spark MERGE INTO: 본 runbook 의 §7 ClassLoader fix 패턴 적용 가능성 검증 필요
 
 ## 관련 문서
 
 - 트러블슈팅 archive
     - [`2026-05-07-day-3-task-3.4-silver-debug.md`](../portfolio/troubleshooting/2026-05-07-day-3-task-3.4-silver-debug.md) — Day 3 silver 0 silent fail 진단 (12 fix + F2 fallback)
-    - [`2026-05-08-day-4-silver-fix-resolved.md`](../portfolio/troubleshooting/2026-05-08-day-4-silver-fix-resolved.md) — Day 4 silver fix closure (7 단계 + ClassLoader fix + 5 학습 패턴)
+    - [`2026-05-08-day-4-silver-fix-resolved.md`](../portfolio/troubleshooting/2026-05-08-day-4-silver-fix-resolved.md) — Day 4 Task 1 silver fix closure (7 단계 + ClassLoader fix + 5 학습 패턴)
+    - [`2026-05-09-day-4-tasks-4_1-4_3.md`](../portfolio/troubleshooting/2026-05-09-day-4-tasks-4_1-4_3.md) — Day 4 Task 4.1~4.3 plan deviation 6건 진단 (silver_stream_wm watermark 우회 / DuckDB UUID path / SLO p95 414→393 / spec review catch)
 - 이전 runbook
     - [`day1_infra.md`](./day1_infra.md) — Day 1 인프라
     - [`day2_producers.md`](./day2_producers.md) — Day 2 producer 운영
     - [`day3_pyflink.md`](./day3_pyflink.md) — Day 3 PyFlink streaming
+- 후속 runbook
+    - [`day4_silver_to_gold.md`](./day4_silver_to_gold.md) — Day 4 Task 4.1~4.3 Silver→Gold + SLO + DuckDB 검증 운영
