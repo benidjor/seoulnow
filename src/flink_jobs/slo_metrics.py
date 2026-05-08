@@ -8,11 +8,14 @@ Iceberg Gold 도달 (`gold_arrival_ts`, `silver_to_gold.py` 의
 
 - 순수 함수: `compute_freshness_seconds`, `summarize`, `_percentile`.
   Iceberg / pyiceberg 의존이 없어서 단위 테스트가 빠르고 결정적.
-- 실 데이터 fetch: `fetch_samples_from_gold`. pyiceberg + Lakekeeper REST
-  catalog 직접 호출. plan(L2476~L2502) 원본은 DuckDB iceberg ext 였으나
-  Lakekeeper 가 vend 하는 UUID 기반 path 를 iceberg_scan() 이 resolve 못함
-  (Task 4.1 verification 에서 확인). pyiceberg `t.scan().to_arrow()` 는
-  table metadata 를 통해 path 를 자동 lookup 하므로 회피 불필요.
+- 실 데이터 fetch: `fetch_samples_from_gold`. pyiceberg + DuckDB 우회.
+  plan(L2476~L2502) 원본 (DuckDB `iceberg_scan(s3://...)`) 이 두 가지로
+  동작 안 함 — (1) Lakekeeper 가 vend 하는 UUID-prefix path 를 iceberg_scan
+  이 resolve 못함 (Task 4.1 verification 에서 확인), (2) pyiceberg
+  `t.scan().to_arrow()` 도 pyarrow 11 (PyFlink 1.20 transitive) 의
+  `concat_tables(promote_options=...)` 미지원으로 fail. 회피 — pyiceberg
+  `plan_files()` 로 실제 parquet path 받아 DuckDB `read_parquet
+  (hive_partitioning=true)` 로 직접 read. 상세는 함수 docstring 참조.
 
 Run:
   JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \\
@@ -24,7 +27,7 @@ import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -116,8 +119,6 @@ def fetch_samples_from_gold() -> list[int]:
     parquet decode 만.
     """
     # Lazy import — duckdb / pyiceberg 는 dev/flink extra 에서만 보장.
-    from datetime import UTC, timedelta
-
     import duckdb
     from pyiceberg.catalog import load_catalog
 
