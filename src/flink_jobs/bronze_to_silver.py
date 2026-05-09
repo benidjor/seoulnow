@@ -16,47 +16,18 @@ from __future__ import annotations
 import logging
 import os
 import time
-from pathlib import Path
 
-from pyflink.table import DataTypes, EnvironmentSettings, TableEnvironment
+from pyflink.table import DataTypes, TableEnvironment
 from pyflink.table.udf import udtf
 
+from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
 from flink_jobs.lib.transforms import enrich_hotspot_silver
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-JAR_DIR = Path(__file__).resolve().parents[2] / "infra" / "flink" / "jars"
 SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
-
-
-def _classpath() -> str:
-    jars = sorted(JAR_DIR.glob("*.jar"))
-    return ";".join(f"file://{p}" for p in jars)
-
-
-def build_env() -> TableEnvironment:
-    settings = EnvironmentSettings.in_streaming_mode()
-    t_env = TableEnvironment.create(settings)
-    t_env.get_config().set("pipeline.jars", _classpath())
-    t_env.get_config().set("parallelism.default", "1")
-    t_env.get_config().set("execution.checkpointing.interval", "30 s")
-    # SQL hint /*+ OPTIONS(...) */ 는 default 비활성. silver INSERT 의
-    # streaming/monitor-interval hint 적용을 위해 명시적으로 enable.
-    t_env.get_config().set("table.dynamic-table-options.enabled", "true")
-    # codahale/dropwizard metrics 클래스 로딩 충돌 회피.
-    # iceberg-flink-runtime jar 안의 com.codahale.metrics 가 PyFlink JVM
-    # system classpath 의 동일 클래스와 ChildFirstClassLoader 에서 LinkageError
-    # 를 일으켜 IcebergStreamWriter.prepareSnapshotPreBarrier 단계 매번 fail
-    # → silent commit fail. parent-first 로 강제해 단일 loader 가 처리.
-    t_env.get_config().set(
-        "classloader.parent-first-patterns.additional",
-        "com.codahale.metrics.;io.dropwizard.metrics.",
-    )
-    # restart-strategy 는 default (fixed-delay 무한 retry, streaming 표준).
-    # 일시 fail 자동 흡수. fail diagnose 가 필요할 때만 'none' 으로 override.
-    return t_env
 
 
 def register_kafka_source_hotspot(t_env: TableEnvironment) -> None:
@@ -166,7 +137,7 @@ def enrich_tf(area_code: str, congest_level: str):
 
 
 def run() -> None:
-    t_env = build_env()
+    t_env = build_streaming_env()
     register_iceberg_catalog(t_env, catalog_alias="ice")
 
     register_kafka_source_hotspot(t_env)

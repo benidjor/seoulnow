@@ -33,11 +33,9 @@ import logging
 import os
 import time
 
-from pyflink.table import EnvironmentSettings, TableEnvironment
+from pyflink.table import TableEnvironment
 
-# TODO Day 5 (3번째 streaming job 진입) 전 `flink_jobs/lib/classpath.py` 로 이동.
-# 현재 sibling module 의 `_` private 식별자를 import 하는 형태라 contract 가 모호.
-from flink_jobs.bronze_to_silver import _classpath
+from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
 from platform_common import get_settings
 
@@ -45,23 +43,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
-
-
-def build_env() -> TableEnvironment:
-    settings = EnvironmentSettings.in_streaming_mode()
-    t_env = TableEnvironment.create(settings)
-    t_env.get_config().set("pipeline.jars", _classpath())
-    t_env.get_config().set("parallelism.default", "1")
-    # bronze_to_silver 와 동일한 30초. silver INSERT commit 주기와 정렬.
-    t_env.get_config().set("execution.checkpointing.interval", "30 s")
-    # /*+ OPTIONS(...) */ SQL hint 적용을 위해 명시적 enable.
-    t_env.get_config().set("table.dynamic-table-options.enabled", "true")
-    # codahale/dropwizard metrics LinkageError 회피 (Day 4 Task 1 fix 동일).
-    t_env.get_config().set(
-        "classloader.parent-first-patterns.additional",
-        "com.codahale.metrics.;io.dropwizard.metrics.",
-    )
-    return t_env
 
 
 def create_gold_table(t_env: TableEnvironment) -> None:
@@ -134,7 +115,7 @@ def create_silver_source_with_watermark(t_env: TableEnvironment) -> None:
 
 
 def run() -> None:
-    t_env = build_env()
+    t_env = build_streaming_env()
     register_iceberg_catalog(t_env, catalog_alias="ice")
     create_gold_table(t_env)
     create_silver_source_with_watermark(t_env)
