@@ -104,72 +104,40 @@ def summarize(samples: Sequence[int]) -> FreshnessReport:
 def fetch_samples_from_gold() -> list[int]:
     """`gold.fact_hotspot_congestion_5min` 최근 24시간 row 의 freshness sec 리스트.
 
-    plan(L2492~L2502) 원본은 DuckDB `iceberg_scan()` 직접 호출이었으나
-    Lakekeeper REST 가 vend 하는 UUID-prefix path 를 resolve 못함
-    (Task 4.1 verification 기록).
-
-    `t.scan().to_arrow()` 는 pyiceberg 0.7.1 + pyarrow 11.0 (PyFlink 1.20
-    transitive) 조합에서 `concat_tables(promote_options=...)` TypeError —
-    promote_options 인자는 pyarrow 14+ 추가. PyFlink 의 pyarrow 11 에 묶인
-    이상 회피 불가.
-
-    회피 — Task 4.1 verification 과 동일한 우회: `pyiceberg.plan_files()`
-    로 실제 parquet path 를 받아서 `DuckDB.read_parquet(hive_partitioning=
-    true)` 로 직접 읽음. 책임 — pyiceberg 는 catalog lookup 만, DuckDB 는
-    parquet decode 만.
+    catalog 생성 / parquet path 조회 / DuckDB SECRET 설정의 3 단계는
+    `flink_jobs.lib.duckdb_iceberg` 가 담당. 회피 배경 (DuckDB
+    `iceberg_scan` 의 UUID-prefix path 미해결 + pyarrow 11
+    `concat_tables(promote_options=...)` 미지원) 은 lib 모듈 docstring.
     """
     # Lazy import — duckdb / pyiceberg 는 dev/flink extra 에서만 보장.
+    from contextlib import closing
+
     import duckdb
-    from pyiceberg.catalog import load_catalog
 
-    from platform_common import get_settings
-
-    s = get_settings()
-    catalog = load_catalog(
-        "rest",
-        **{
-            "uri": f"{s.lakekeeper_url}/catalog",
-            "warehouse": s.iceberg_catalog_name,
-            "s3.endpoint": s.minio_endpoint,
-            "s3.access-key-id": s.minio_user,
-            "s3.secret-access-key": s.minio_password.get_secret_value(),
-            "s3.path-style-access": "true",
-            "s3.region": s.minio_region,
-        },
+    from flink_jobs.lib.duckdb_iceberg import (
+        build_catalog,
+        configure_duckdb,
+        table_paths,
     )
-    table = catalog.load_table("gold.fact_hotspot_congestion_5min")
-    file_paths = [f.file.file_path for f in table.scan().plan_files()]
+
+    catalog = build_catalog()
+    file_paths = table_paths(catalog, "gold.fact_hotspot_congestion_5min")
     if not file_paths:
         return []
 
-    con = duckdb.connect()
-    con.execute("INSTALL httpfs; LOAD httpfs;")
-    endpoint_host = s.minio_endpoint.replace("http://", "").replace("https://", "")
-    con.execute(
-        f"""
-        CREATE OR REPLACE SECRET (
-            TYPE S3,
-            KEY_ID '{s.minio_user}',
-            SECRET '{s.minio_password.get_secret_value()}',
-            ENDPOINT '{endpoint_host}',
-            URL_STYLE 'path',
-            USE_SSL false,
-            REGION '{s.minio_region}'
-        )
-        """
-    )
-
     cutoff = (datetime.now(UTC) - timedelta(hours=24)).replace(tzinfo=None)
-    rows = con.execute(
-        """
-        SELECT date_diff('second', last_api_response_ts, gold_arrival_ts) AS sec
-        FROM read_parquet(?, hive_partitioning = true)
-        WHERE last_api_response_ts IS NOT NULL
-          AND gold_arrival_ts IS NOT NULL
-          AND gold_arrival_ts >= ?
-        """,
-        [file_paths, cutoff],
-    ).fetchall()
+    with closing(duckdb.connect()) as con:
+        configure_duckdb(con)
+        rows = con.execute(
+            """
+            SELECT date_diff('second', last_api_response_ts, gold_arrival_ts) AS sec
+            FROM read_parquet(?, hive_partitioning = true)
+            WHERE last_api_response_ts IS NOT NULL
+              AND gold_arrival_ts IS NOT NULL
+              AND gold_arrival_ts >= ?
+            """,
+            [file_paths, cutoff],
+        ).fetchall()
     return [max(0, int(r[0])) for r in rows if r[0] is not None]
 
 
