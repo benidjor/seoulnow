@@ -5,6 +5,16 @@
 ## Quick Start (로컬 docker-compose)
 
 ```bash
+# 0. host /etc/hosts 에 docker hostname alias 1회 추가 (sudo 1회).
+#    Lakekeeper REST 가 `/v1/config` 의 `overrides.uri` 로 vend 하는 catalog uri
+#    가 docker hostname 기준이라 host 측 client (PyFlink, dbt host run 등) 도 같은
+#    hostname 으로 resolve 되어야 한다. host port mapping (8181:8181, 9000:9000)
+#    덕분에 alias 1줄로 host / container 양쪽이 통과한다 (자세한 진단은
+#    docs/runbook/day1_infra.md 의 트러블슈팅 표).
+sudo sh -c 'echo "127.0.0.1 lakekeeper minio" >> /etc/hosts'
+
+# 1. .env 복사 — `LAKEKEEPER_URL=http://lakekeeper:8181`,
+#    `MINIO_ENDPOINT=http://minio:9000` 이 default.
 cp .env.example .env
 # .env 의 SEOUL_OPENAPI_KEY, SEOUL_SUBWAY_API_KEY 채우기
 
