@@ -2,7 +2,25 @@
 
 > 작성: 2026-05-11
 > 영역: Day 6 Task 6.1~6.4 (Kafka Connect + Debezium Postgres connector + PyFlink CDC 컨슈머 + dbt mart)
-> 관련 PR: #36 (Task 6.1~6.2), #37 (image tag 정정), 본 PR β (Task 6.3~6.4)
+> 관련 PR: #33 (α0 dbt-venv 통합), #34 (α1 BashOperator env), #35 (α2 Lakekeeper BASE_URI), #36 (α Task 6.1~6.2), #37 (α3 image tag), #38 (β Task 6.3~6.4 + lint + deviation D), #39 (γ identifier 3-part)
+> 진단 archive: [`2026-05-11-day-6-airflow-cdc-integration.md`](../portfolio/troubleshooting/2026-05-11-day-6-airflow-cdc-integration.md) — 진입 hotfix 5단계 + 운영 발견 3건 + 학습 패턴 5종
+
+## Day 6 진입 hotfix 흐름 (요약, 상세는 archive)
+
+manual trigger 1회 검증이 Day 5 분리 머지의 통합 미완 5단계를 연쇄 식별:
+
+| 단계 | 발견 | root cause | 해결 |
+|---|---|---|---|
+| α0 (#33) | `ModuleNotFoundError: flink_jobs` | dbt-venv 통합 미완 (mount + 의존성 + PYTHONPATH + env override) | docker-compose anchor + dbt-requirements + PYTHONPATH |
+| α1 (#34) | `ConnectionRefusedError(localhost:8181)` | BashOperator append_env inherit 결손 | `dbt_env` dict 명시 set |
+| α2 (#35) | env transmission 정상이나 또 fail | Lakekeeper REST `overrides.uri` 가 client kwargs 강제 override | BASE_URI=docker hostname 통일 + host /etc/hosts |
+| α3 (#37) | `image not found "debezium/connect:2.7"` | Debezium tagging `<major>.<minor>.<patch>.Final` | `2.7.3.Final` |
+| γ (#39) | Flink `Object identifier must consist of 1 to 3 parts` | `register_iceberg_catalog` flat database 등록 | `ice.silver.dim_place` 3-part |
+
+부수 fix (PR #38 안):
+- deviation D — `dim_place.sql` → `dim_place.py` (dbt-duckdb 의 Iceberg source 자동 read 미지원)
+- CI lint UP017/F401 — `datetime.UTC` alias + 미사용 pytest import
+- deviation C — plan 의 ts_ms hand-calc 오기 (`12:33:20` → `15:13:20`)
 
 ## 정상 경로
 
@@ -82,5 +100,10 @@ kill <cdc_to_dim_place pid>
 
 - spec §4-2 (`dim_place` SCD2 정의), §6-1 Day 6, §9-1 Day 6 fallback
 - Phase 1A Week 2 plan §Day 6 Task 6.1~6.4
-- Day 4 Task 1 silver fix archive (classloader fix 의 단일 출처)
+- 진단 archive: [`2026-05-11-day-6-airflow-cdc-integration.md`](../portfolio/troubleshooting/2026-05-11-day-6-airflow-cdc-integration.md) — 진입 hotfix 5단계 + 운영 발견 3건 + 학습 패턴 5종 (단일 출처)
+- 직전 Day 학습:
+  - [`day1_infra.md`](./day1_infra.md) 트러블슈팅 표 — Lakekeeper BASE_URI 진단 (Issue 3 의 원인 환경)
+  - [`2026-05-09-day-4-tasks-4_1-4_3.md`](../portfolio/troubleshooting/2026-05-09-day-4-tasks-4_1-4_3.md) — Lakekeeper UUID-prefix path + pyiceberg `plan_files()` 우회 패턴
+  - [`2026-05-10-day-5-dbt-iceberg-compat.md`](../portfolio/troubleshooting/2026-05-10-day-5-dbt-iceberg-compat.md) — `stg_hotspot_silver.py` python model 결정 (deviation D 의 template)
+- Day 4 Task 1 silver fix archive — classloader fix 의 단일 출처
 - Day 5 dbt runbook (`day5_dbt.md`) — dbt 명령 / profiles.yml 정책 공유
