@@ -27,7 +27,7 @@ import time
 from pyflink.table import TableEnvironment
 
 from flink_jobs.lib.env import build_streaming_env
-from flink_jobs.lib.iceberg_sink import register_iceberg_catalog, warehouse_namespace
+from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -80,11 +80,14 @@ def create_dim_place_table(t_env: TableEnvironment) -> None:
     SCD2 골격 — 각 CDC 이벤트마다 한 행 append. ``valid_to`` 는 Day 9 Spark
     MERGE 가 채우고, ``is_current`` 는 streaming 시점에 ``op != 'd'`` 로만 표시
     (직전 행을 false 로 닫는 작업도 Day 9 Spark 책임).
+
+    iceberg_sink.register_iceberg_catalog 가 ``ice.{bronze,silver,gold}`` flat
+    database 로 register 하므로 4-part (``ice.<warehouse>.silver.x``) 금지 —
+    bronze_to_silver / silver_to_gold 와 동일한 3-part identifier 사용.
     """
-    cat = warehouse_namespace()
     t_env.execute_sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS ice.{cat}.silver.dim_place (
+        """
+        CREATE TABLE IF NOT EXISTS ice.silver.dim_place (
           place_id BIGINT,
           biz_reg_no STRING,
           name STRING,
@@ -109,7 +112,6 @@ def create_dim_place_table(t_env: TableEnvironment) -> None:
 def run() -> None:
     t_env = build_streaming_env()
     register_iceberg_catalog(t_env, catalog_alias="ice")
-    cat = warehouse_namespace()
 
     register_cdc_source(t_env)
     create_dim_place_table(t_env)
@@ -118,8 +120,8 @@ def run() -> None:
     # COALESCE 로 delete 시 before, 그 외 after 우선 채택 (parse_debezium_envelope
     # pure function 의 SQL 등가물).
     t_env.execute_sql(
-        f"""
-        INSERT INTO ice.{cat}.silver.dim_place
+        """
+        INSERT INTO ice.silver.dim_place
         SELECT
           COALESCE(`payload`.`after`.place_id, `payload`.`before`.place_id)         AS place_id,
           COALESCE(`payload`.`after`.biz_reg_no, `payload`.`before`.biz_reg_no)     AS biz_reg_no,

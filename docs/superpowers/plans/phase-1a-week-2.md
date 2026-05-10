@@ -577,7 +577,7 @@ import time
 from pyflink.table import TableEnvironment
 
 from flink_jobs.lib.env import build_streaming_env
-from flink_jobs.lib.iceberg_sink import register_iceberg_catalog, warehouse_namespace
+from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -622,10 +622,13 @@ def register_cdc_source(t_env: TableEnvironment) -> None:
 
 
 def create_dim_place_table(t_env: TableEnvironment) -> None:
-    cat = warehouse_namespace()
+    # 2026-05-11 정정 (deviation E) — register_iceberg_catalog 가
+    # ice.{bronze,silver,gold} flat database 로 register 하므로 4-part
+    # (ice.<warehouse>.silver.x) 금지. bronze_to_silver / silver_to_gold 와
+    # 동일한 3-part identifier 사용 (PR γ).
     t_env.execute_sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS ice.{cat}.silver.dim_place (
+        """
+        CREATE TABLE IF NOT EXISTS ice.silver.dim_place (
           place_id BIGINT,
           biz_reg_no STRING,
           name STRING,
@@ -650,14 +653,13 @@ def create_dim_place_table(t_env: TableEnvironment) -> None:
 def run() -> None:
     t_env = build_streaming_env()
     register_iceberg_catalog(t_env, catalog_alias="ice")
-    cat = warehouse_namespace()
 
     register_cdc_source(t_env)
     create_dim_place_table(t_env)
 
     t_env.execute_sql(
-        f"""
-        INSERT INTO ice.{cat}.silver.dim_place
+        """
+        INSERT INTO ice.silver.dim_place
         SELECT
           COALESCE(`payload`.`after`.place_id, `payload`.`before`.place_id)         AS place_id,
           COALESCE(`payload`.`after`.biz_reg_no, `payload`.`before`.biz_reg_no)     AS biz_reg_no,
