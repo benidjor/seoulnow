@@ -140,7 +140,9 @@ seoul-citydata-platform/
 
 ```yaml
   kafka-connect:
-    image: debezium/connect:2.7
+    # 2026-05-11 정정 — Debezium docker hub tagging 은 `<major>.<minor>.<patch>.Final`.
+    # 단순 `2.7` tag 는 없음. 2.7 series 최신 안정 patch = 2.7.3.Final (PR α3).
+    image: debezium/connect:2.7.3.Final
     container_name: scp-kafka-connect
     depends_on:
       kafka:
