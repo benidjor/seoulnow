@@ -91,7 +91,7 @@ seoul-citydata-platform/
 │       ├── models/
 │       │   ├── sources.yml                (Week 1 → Week 2 modify: dim_place + bronze.places_static)
 │       │   └── marts/
-│       │       ├── dim_place.sql          (Task 6.4 신규 — staging-style view)
+│       │       ├── dim_place.py           (Task 6.4 신규 — python model, deviation D)
 │       │       └── chill_open_now.sql     (Task 8.2 신규 — 가장 핵심 mart)
 ├── infra/
 │   └── cloudflare/
@@ -400,6 +400,8 @@ git commit -m "feat: postgres places seed + cdc smoke verified"
 
 **디자인:** `cdc_to_dim_place.py` 는 Debezium envelope (`op`, `before`, `after`, `ts_ms`) 를 풀어 SCD2 row 로 변환한다. SCD2 본격 머지(Type 2 closure) 는 Day 9 Spark MERGE INTO 에서 다루고, 본 task 의 PyFlink 는 **변경 이벤트를 그대로 append-only 로 적재** (각 변경마다 `valid_from`, `valid_to=NULL`, `is_current` 플래그). Day 9 Spark batch 가 같은 `place_id` 의 직전 행 `valid_to` 를 닫고 `is_current=false` 로 갱신한다 (= 1번 미해결 closure 의 일환).
 
+_(2026-05-11 정정 — PR β 검증에서 Debezium envelope 이 `{schema, payload}` wrapping 으로 발행됨 (`VALUE_CONVERTER_SCHEMAS_ENABLE=false` 효력 안 남) + Lakekeeper UUID-prefix path 학습 충돌 → Step 5 source DDL/INSERT 와 Step 6 verification 일괄 정정. Step 1 의 expected datetime 도 1714490000000 ms = 2024-04-30 15:13:20 UTC 로 정정.)_
+
 - [ ] **Step 1: 실패 테스트 작성**
 
 `tests/unit/test_scd2.py`:
@@ -459,7 +461,8 @@ def test_to_scd2_row_create_marks_current():
     assert isinstance(row, Scd2Row)
     assert row.place_id == 1
     assert row.is_current is True
-    assert row.valid_from == datetime(2024, 4, 30, 12, 33, 20, tzinfo=timezone.utc).replace(tzinfo=None)
+    # ts_ms=1714490000000 → 2024-04-30 15:13:20 UTC. naive UTC 로 변환.
+    assert row.valid_from == datetime(2024, 4, 30, 15, 13, 20, tzinfo=timezone.utc).replace(tzinfo=None)
     assert row.valid_to is None
     assert row.cdc_op == "c"
 
@@ -555,7 +558,7 @@ def to_scd2_row(rec: CdcRecord) -> Scd2Row:
 Run: `uv run pytest tests/unit/test_scd2.py -v`
 Expected: 5개 PASS.
 
-- [ ] **Step 5: src/flink_jobs/cdc_to_dim_place.py 작성**
+- [ ] **Step 5: src/flink_jobs/cdc_to_dim_place.py 작성** _(2026-05-11 정정 — envelope `{schema, payload}` wrapping 적용 + `lib.env.build_streaming_env` 재사용)_
 
 ```python
 """Debezium `place.master.cdc.v1` → Iceberg silver.dim_place (append SCD2 골격).
@@ -569,42 +572,41 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
-from pyflink.table import EnvironmentSettings, TableEnvironment
+from pyflink.table import TableEnvironment
 
-from flink_jobs.bronze_to_silver import _classpath
+from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog, warehouse_namespace
 
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
-
-def build_env() -> TableEnvironment:
-    settings = EnvironmentSettings.in_streaming_mode()
-    t_env = TableEnvironment.create(settings)
-    t_env.get_config().set("pipeline.jars", _classpath())
-    t_env.get_config().set("parallelism.default", "1")
-    t_env.get_config().set("execution.checkpointing.interval", "60 s")
-    return t_env
+SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
 
 
 def register_cdc_source(t_env: TableEnvironment) -> None:
     bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    # Debezium envelope (schemas disabled): {op, before, after, ts_ms, source}
+    # Debezium envelope `{schema, payload}` wrapping. VALUE_CONVERTER_SCHEMAS_ENABLE=false
+    # 효력 안 남 (Debezium 2.7.x 의 알려진 동작) — root 에 payload ROW 1개만 두고
+    # op/before/after/ts_ms 는 payload 안에서 unwrap.
     ddl = f"""
     CREATE TEMPORARY TABLE place_cdc_src (
-      op STRING,
-      ts_ms BIGINT,
-      `before` ROW<
-        place_id BIGINT, biz_reg_no STRING, name STRING, category STRING,
-        district STRING, gu_code STRING,
-        latitude DOUBLE, longitude DOUBLE,
-        open_hour INT, close_hour INT, status STRING
-      >,
-      `after` ROW<
-        place_id BIGINT, biz_reg_no STRING, name STRING, category STRING,
-        district STRING, gu_code STRING,
-        latitude DOUBLE, longitude DOUBLE,
-        open_hour INT, close_hour INT, status STRING
+      `payload` ROW<
+        `op` STRING,
+        ts_ms BIGINT,
+        `before` ROW<
+          place_id BIGINT, biz_reg_no STRING, name STRING, category STRING,
+          district STRING, gu_code STRING,
+          latitude DOUBLE, longitude DOUBLE,
+          open_hour INT, close_hour INT, status STRING
+        >,
+        `after` ROW<
+          place_id BIGINT, biz_reg_no STRING, name STRING, category STRING,
+          district STRING, gu_code STRING,
+          latitude DOUBLE, longitude DOUBLE,
+          open_hour INT, close_hour INT, status STRING
+        >
       >
     ) WITH (
       'connector' = 'kafka',
@@ -646,7 +648,7 @@ def create_dim_place_table(t_env: TableEnvironment) -> None:
 
 
 def run() -> None:
-    t_env = build_env()
+    t_env = build_streaming_env()
     register_iceberg_catalog(t_env, catalog_alias="ice")
     cat = warehouse_namespace()
 
@@ -657,25 +659,30 @@ def run() -> None:
         f"""
         INSERT INTO ice.{cat}.silver.dim_place
         SELECT
-          COALESCE(`after`.place_id, `before`.place_id)        AS place_id,
-          COALESCE(`after`.biz_reg_no, `before`.biz_reg_no)    AS biz_reg_no,
-          COALESCE(`after`.name, `before`.name)                AS name,
-          COALESCE(`after`.category, `before`.category)        AS category,
-          COALESCE(`after`.district, `before`.district)        AS district,
-          COALESCE(`after`.gu_code, `before`.gu_code)          AS gu_code,
-          COALESCE(`after`.latitude, `before`.latitude)        AS latitude,
-          COALESCE(`after`.longitude, `before`.longitude)      AS longitude,
-          COALESCE(`after`.open_hour, `before`.open_hour)      AS open_hour,
-          COALESCE(`after`.close_hour, `before`.close_hour)    AS close_hour,
-          COALESCE(`after`.status, `before`.status)            AS status,
-          op                                                    AS cdc_op,
-          TO_TIMESTAMP_LTZ(ts_ms, 3)                            AS valid_from,
-          CAST(NULL AS TIMESTAMP(3))                            AS valid_to,
-          (op <> 'd')                                           AS is_current
+          COALESCE(`payload`.`after`.place_id, `payload`.`before`.place_id)         AS place_id,
+          COALESCE(`payload`.`after`.biz_reg_no, `payload`.`before`.biz_reg_no)     AS biz_reg_no,
+          COALESCE(`payload`.`after`.name, `payload`.`before`.name)                 AS name,
+          COALESCE(`payload`.`after`.category, `payload`.`before`.category)         AS category,
+          COALESCE(`payload`.`after`.district, `payload`.`before`.district)         AS district,
+          COALESCE(`payload`.`after`.gu_code, `payload`.`before`.gu_code)           AS gu_code,
+          COALESCE(`payload`.`after`.latitude, `payload`.`before`.latitude)         AS latitude,
+          COALESCE(`payload`.`after`.longitude, `payload`.`before`.longitude)       AS longitude,
+          COALESCE(`payload`.`after`.open_hour, `payload`.`before`.open_hour)       AS open_hour,
+          COALESCE(`payload`.`after`.close_hour, `payload`.`before`.close_hour)     AS close_hour,
+          COALESCE(`payload`.`after`.status, `payload`.`before`.status)             AS status,
+          `payload`.`op`                                                            AS cdc_op,
+          TO_TIMESTAMP_LTZ(`payload`.ts_ms, 3)                                      AS valid_from,
+          CAST(NULL AS TIMESTAMP(3))                                                AS valid_to,
+          (`payload`.`op` <> 'd')                                                   AS is_current
         FROM place_cdc_src
-        WHERE op IN ('c','u','d','r')
+        WHERE `payload`.`op` IN ('c','u','d','r')
         """
     )
+
+    log.info("CDC streaming job submitted (place.master.cdc.v1 → silver.dim_place)")
+    log.info("Streaming 가동 중. SIGTERM 대기 (최대 %ds).", SMOKE_RUN_SECONDS)
+    time.sleep(SMOKE_RUN_SECONDS)
+    log.info("Smoke run timeout, exiting.")
 
 
 if __name__ == "__main__":
@@ -695,16 +702,26 @@ sleep 30
 kill $FPID 2>/dev/null || true
 ```
 
-DuckDB 검증:
+Lakekeeper REST + DuckDB 검증 _(2026-05-11 정정 — DuckDB `iceberg_scan(s3 plain path)` 이 Lakekeeper REST 의 UUID-prefix path 를 resolve 못 하므로 Day 4 Task 4.1 / Day 5 Task 5.2 와 동일하게 `flink_jobs.lib.duckdb_iceberg` 우회 패턴 사용)_:
+
 Run:
 ```bash
-uv run python -c "
+uv run --extra flink python <<'PY'
 import duckdb
+from flink_jobs.lib.duckdb_iceberg import build_catalog, configure_duckdb, table_paths
+
 con = duckdb.connect()
-con.execute(\"INSTALL iceberg; LOAD iceberg; INSTALL httpfs; LOAD httpfs;\")
-con.execute(\"CREATE OR REPLACE SECRET (TYPE S3, KEY_ID 'minioadmin', SECRET 'minioadmin', ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1')\")
-print(con.execute(\"SELECT place_id, name, cdc_op, valid_from FROM iceberg_scan('s3://seoul-warehouse/warehouse/silver/dim_place') ORDER BY valid_from DESC LIMIT 10\").fetchall())
-"
+configure_duckdb(con)
+catalog = build_catalog()
+paths = table_paths(catalog, "silver.dim_place")
+print("paths count:", len(paths))
+rows = con.execute(
+    f"SELECT place_id, name, cdc_op, valid_from FROM read_parquet({paths!r}, hive_partitioning=true) "
+    f"ORDER BY valid_from DESC LIMIT 10"
+).fetchall()
+for r in rows:
+    print(r)
+PY
 ```
 Expected: 6행 이상 (initial snapshot 5 + update 1). update 행은 `cdc_op='u'`, `name='홍대 24시 분식 v2'`.
 
@@ -721,7 +738,7 @@ git commit -m "feat: pyflink cdc consumer for silver.dim_place scd2 skeleton"
 
 **Files:**
 - Modify: `dbt/seoul/models/sources.yml` (silver.dim_place 추가)
-- Create: `dbt/seoul/models/marts/dim_place.sql`
+- Create: `dbt/seoul/models/marts/dim_place.py` _(2026-05-11 정정 — PR β 검증 중 dbt-duckdb adapter 의 Lakekeeper source 자동 read 미지원 확인 → Day 5 stg_hotspot_silver.py 와 동일 패턴(python model + lib 우회)으로 변환. deviation D.)_
 - Create: `docs/runbook/day6_cdc.md`
 
 **근거:** spec §6-1 Day 6 산출물 = "CDC 동작 데모". spec §9-1 Day 6 fallback = Postgres outbox + 폴링 producer.
@@ -743,26 +760,86 @@ git commit -m "feat: pyflink cdc consumer for silver.dim_place scd2 skeleton"
           - name: is_current
 ```
 
-- [ ] **Step 2: dbt mart `dim_place.sql` (current snapshot view)**
+- [ ] **Step 2: dbt mart `dim_place.py` (python model — current snapshot view)** _(2026-05-11 정정 — dbt-duckdb adapter 의 Lakekeeper source 자동 read 미지원 → Day 5 stg_hotspot_silver.py 와 동일 패턴. deviation D.)_
 
-```sql
-{{ config(materialized='view', schema='gold') }}
+```python
+"""dbt python model — gold.dim_place (silver SCD2 의 current snapshot view).
 
--- "현재 활성" 가게만 추출. SCD2 폐쇄 전이라도 latest 1행으로 좁힌다.
-with ranked as (
-    select
-        *,
-        row_number() over (partition by place_id order by valid_from desc) as rn
-    from {{ source('silver', 'dim_place') }}
-)
-select
-    place_id, biz_reg_no, name, category, district, gu_code,
-    latitude, longitude, open_hour, close_hour, status,
-    valid_from
-from ranked
-where rn = 1
-  and cdc_op <> 'd'
-  and status = 'active'
+Day 6 Task 6.4 deviation D — plan 의 SQL view (`{{ source('silver', 'dim_place') }}`)
+는 dbt-duckdb adapter 가 Lakekeeper Iceberg source 의 external_location 을 자동
+read 못함. Day 5 stg_hotspot_silver.py 와 동일한 우회 패턴 — pyiceberg `plan_files()`
+로 actual S3 path 받아 DuckDB `read_parquet(?, hive_partitioning=true)` 로 직접 read.
+
+핵심 결정:
+- materialized="table" (python model 자체 제약 + DuckDB in-memory 환경에선 storage 차이 0)
+- "현재 활성 가게" = row_number=1 over (partition by place_id order by valid_from desc)
+  + cdc_op <> 'd' + status='active'
+- empty source (snapshot 없음) → schema-only empty result (`WHERE 1=0`).
+"""
+from __future__ import annotations
+
+
+def model(dbt, session):
+    dbt.config(materialized="table", schema="gold")
+
+    from flink_jobs.lib.duckdb_iceberg import (
+        build_catalog,
+        configure_duckdb,
+        table_paths,
+    )
+
+    catalog = build_catalog()
+    file_paths = table_paths(catalog, "silver.dim_place")
+
+    if not file_paths:
+        return session.sql(
+            """
+            SELECT
+                CAST(NULL AS BIGINT)    AS place_id,
+                CAST(NULL AS VARCHAR)   AS biz_reg_no,
+                CAST(NULL AS VARCHAR)   AS name,
+                CAST(NULL AS VARCHAR)   AS category,
+                CAST(NULL AS VARCHAR)   AS district,
+                CAST(NULL AS VARCHAR)   AS gu_code,
+                CAST(NULL AS DOUBLE)    AS latitude,
+                CAST(NULL AS DOUBLE)    AS longitude,
+                CAST(NULL AS INTEGER)   AS open_hour,
+                CAST(NULL AS INTEGER)   AS close_hour,
+                CAST(NULL AS VARCHAR)   AS status,
+                CAST(NULL AS TIMESTAMP) AS valid_from
+            WHERE 1 = 0
+            """
+        )
+
+    configure_duckdb(session)
+
+    return session.sql(
+        f"""
+        WITH ranked AS (
+            SELECT
+                *,
+                row_number() OVER (PARTITION BY place_id ORDER BY valid_from DESC) AS rn
+            FROM read_parquet({file_paths!r}, hive_partitioning = true)
+        )
+        SELECT
+            place_id,
+            biz_reg_no,
+            name,
+            category,
+            district,
+            gu_code,
+            latitude,
+            longitude,
+            open_hour,
+            close_hour,
+            status,
+            valid_from
+        FROM ranked
+        WHERE rn = 1
+          AND cdc_op <> 'd'
+          AND status = 'active'
+        """
+    )
 ```
 
 - [ ] **Step 3: dbt run + test**
@@ -814,7 +891,7 @@ Debezium 셋업 4시간 초과 시 우회:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dbt/seoul/models/sources.yml dbt/seoul/models/marts/dim_place.sql docs/runbook/day6_cdc.md
+git add dbt/seoul/models/sources.yml dbt/seoul/models/marts/dim_place.py docs/runbook/day6_cdc.md
 git commit -m "feat: dim_place dbt mart + day6 cdc runbook"
 ```
 
