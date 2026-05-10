@@ -23,6 +23,10 @@ x-airflow-common: &airflow-common
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/plugins:/opt/airflow/plugins
     - ./airflow/logs:/opt/airflow/logs
+    # dbt project 마운트 — Task 5.6 dbt_full_run DAG 의 BashOperator 가
+    # /opt/airflow/dbt/seoul 안에서 dbt CLI 호출. profiles.yml 도 host bind
+    # 라 Airflow container 와 host 가 같은 file 공유 (target/ 도 자동 sync).
+    - ./dbt:/opt/airflow/dbt
 
 services:
   kafka:
