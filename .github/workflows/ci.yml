@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python lint + unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.x"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dev + flink deps
+        run: uv sync --extra dev --extra flink
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Pytest unit
+        run: uv run pytest tests/unit -v
+
+  dbt:
+    name: dbt parse + compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.x"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # PyFlink 1.20 transitive apache-beam 의 protobuf 와 dbt-core 의 protobuf
+      # 가 양립 불가 → flink 와 dbt extras 가 conflicts (pyproject.toml).
+      # CI 도 job 별로 분리해 dbt job 은 dbt extra 만.
+      - name: Install dbt deps (separate from flink)
+        run: uv sync --extra dbt
+
+      - name: Write CI profiles.yml (in-memory DuckDB, MinIO 미사용)
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<'EOF'
+          seoul_duckdb:
+            target: ci
+            outputs:
+              ci:
+                type: duckdb
+                path: ":memory:"
+          EOF
+
+      # CI 환경엔 MinIO 가 없어 `dbt run` / `dbt test` 는 빠짐.
+      # parse + compile 까지 (model SQL/Jinja 렌더링 검증).
+      - name: dbt deps
+        working-directory: dbt/seoul
+        run: uv run --project ../.. --extra dbt dbt deps
+
+      - name: dbt parse
+        working-directory: dbt/seoul
+        run: uv run --project ../.. --extra dbt dbt parse
+
+      - name: dbt compile
+        working-directory: dbt/seoul
+        run: uv run --project ../.. --extra dbt dbt compile
