@@ -1,0 +1,8 @@
+# dbt 전용 venv (`/opt/airflow/dbt-venv`) 의존성. Airflow venv 와 분리 —
+# dbt-core 1.9.x 의 protobuf 요구 (>=6.0 또는 다른 transitive) 가 Airflow
+# 2.10.5 constraints (protobuf==4.25.6) 와 양립 불가.
+#
+# DAG 의 BashOperator 가 ${DBT_VENV_BIN}/dbt CLI 호출. Airflow venv 와 격리.
+
+dbt-core>=1.9,<1.10
+dbt-duckdb>=1.9,<1.10

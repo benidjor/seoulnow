@@ -60,3 +60,7 @@ tmp/
 
 # Flink connector JARs (downloaded locally)
 infra/flink/jars/*.jar
+
+# Airflow (Task 5.5+) — runtime logs / SQLite (만약 SQLite 로 fall back 시)
+airflow/logs/
+airflow/airflow.db

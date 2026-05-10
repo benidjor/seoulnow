@@ -25,6 +25,10 @@ echo "== Lakekeeper =="
 curl -sf http://localhost:8181/health && echo OK || { echo FAIL; _fail=$((_fail+1)); }
 
 echo
+echo "== Airflow =="
+curl -sf http://localhost:8080/health && echo OK || { echo FAIL; _fail=$((_fail+1)); }
+
+echo
 echo "== summary =="
 echo "failed sections: ${_fail}"
 exit "${_fail}"

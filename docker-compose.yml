@@ -1,5 +1,33 @@
 name: scp
 
+# Airflow common config (Task 5.5) — webserver / scheduler / init 가 공유.
+# LocalExecutor + 기존 scp-postgres 안 airflow_meta DB backend (plan 의 SQLite
+# metadata 미사용 — Airflow 2.10 의 LocalExecutor 가 SQLite 와 lock 충돌이라
+# 별도 Postgres backend 필요. 별도 container 안 띄우고 기존 postgres 재사용
+# 하여 메모리 mitigation 의도 보존).
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://scp:scp_dev_password@postgres:5432/airflow_meta
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__PARSING_PROCESSES: "1"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "300"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+  user: "${AIRFLOW_UID:-50000}:0"
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/logs:/opt/airflow/logs
+    # dbt project 마운트 — Task 5.6 dbt_full_run DAG 의 BashOperator 가
+    # /opt/airflow/dbt/seoul 안에서 dbt CLI 호출. profiles.yml 도 host bind
+    # 라 Airflow container 와 host 가 같은 file 공유 (target/ 도 자동 sync).
+    - ./dbt:/opt/airflow/dbt
+
 services:
   kafka:
     image: apache/kafka:4.0.0
@@ -131,6 +159,72 @@ services:
       interval: 10s
       timeout: 5s
       retries: 18
+
+  # Airflow 4 service (Task 5.5).
+  # 기존 scp-postgres 안 airflow_meta DB 1회 생성 (멱등) → airflow-init 의 db
+  # migrate + admin user 생성 1회 → webserver / scheduler 가동.
+  postgres-airflow-bootstrap:
+    image: postgres:16
+    container_name: scp-postgres-airflow-bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: scp_dev_password
+    entrypoint: >
+      /bin/sh -c "
+      psql -h postgres -U scp -d scp -tc \"SELECT 1 FROM pg_database WHERE datname='airflow_meta'\" | grep -q 1 ||
+      psql -h postgres -U scp -d scp -c 'CREATE DATABASE airflow_meta'
+      "
+    restart: "no"
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: scp-airflow-init
+    depends_on:
+      postgres-airflow-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-common-env
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USERNAME:-admin}" \
+          --firstname Admin \
+          --lastname Admin \
+          --role Admin \
+          --email admin@example.com \
+          --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          || true
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: scp-airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: scp-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
 
 volumes:
   kafka_data:

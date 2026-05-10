@@ -1,0 +1,17 @@
+# Airflow venv 안 의존성 — Airflow 호환 패키지만. Airflow 2.10.5 base image
+# 의 system venv 에 install. dbt 는 별도 venv (`dbt-requirements.txt`).
+#
+# 구조 변경 사유 — dbt-core 1.9.x 의 protobuf 요구가 Airflow constraints
+# (protobuf==4.25.6) 와 양립 불가. dbt 만 별도 venv 로 격리.
+
+# Airflow Postgres provider — airflow_meta DB connection (LocalExecutor backend).
+# 상한 안 박음 — Airflow 2.10.5 constraints 가 6.0.0 으로 lock (constraints 우선).
+apache-airflow-providers-postgres>=5.7
+
+# Iceberg + DuckDB — Task 5.6 후속 DAG / Task 5.7 backfill / Day 10 SLO 리포트.
+# pyiceberg / duckdb 는 protobuf 의존 없어 Airflow constraints 와 양립.
+pyiceberg[duckdb,s3fs]>=0.7,<0.10
+duckdb>=1.1
+
+# AWS / MinIO 호환 client
+boto3>=1.34
