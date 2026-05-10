@@ -19,6 +19,8 @@ Plan 대비 변경 (Task 5.6):
 - dbt CLI 호출 = `${DBT_VENV_BIN}/dbt` (Task 5.5 의 별도 venv,
   protobuf 충돌 회피).
 - `DBT_PROFILES_DIR=/opt/airflow/dbt/seoul` (host 의 profiles.yml 마운트).
+- Day 6 hotfix: PYTHONPATH 추가 (dbt python model 의 flink_jobs /
+  platform_common import 경로 보강 — `./src` ro mount 에 대응).
 """
 from __future__ import annotations
 
@@ -44,6 +46,11 @@ default_args = {
 
 dbt_env = {
     "DBT_PROFILES_DIR": DBT_DIR,
+    # Day 6 hotfix — `stg_hotspot_silver` (dbt python model) 가
+    # `flink_jobs.lib.duckdb_iceberg` / `platform_common.config` 를 import.
+    # docker-compose 에서 `./src:/opt/airflow/repo-src:ro` mount, 여기서
+    # path 추가.
+    "PYTHONPATH": "/opt/airflow/repo-src",
 }
 
 
