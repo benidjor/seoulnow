@@ -18,6 +18,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__PARSING_PROCESSES: "1"
     AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "300"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+    # Day 6 hotfix — dbt python model 의 platform_common.config.Settings 가
+    # 컨테이너 안에서 docker network DNS 로 lakekeeper / minio 에 도달하도록
+    # 강제. default (`http://localhost:...`) 는 self loopback 라 컨테이너에서
+    # 무효.
+    LAKEKEEPER_URL: http://lakekeeper:8181
+    MINIO_ENDPOINT: http://minio:9000
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - ./airflow/dags:/opt/airflow/dags
@@ -27,6 +33,10 @@ x-airflow-common: &airflow-common
     # /opt/airflow/dbt/seoul 안에서 dbt CLI 호출. profiles.yml 도 host bind
     # 라 Airflow container 와 host 가 같은 file 공유 (target/ 도 자동 sync).
     - ./dbt:/opt/airflow/dbt
+    # Day 6 hotfix — dbt python model `stg_hotspot_silver` 가 host 와 동일
+    # 하게 `flink_jobs.lib.duckdb_iceberg` / `platform_common.config` 를
+    # import. PYTHONPATH 는 dbt_full_run.py 의 dbt_env 에서 잡아준다.
+    - ./src:/opt/airflow/repo-src:ro
 
 services:
   kafka:
