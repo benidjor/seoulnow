@@ -39,6 +39,7 @@ THRESHOLD=70 ./scripts/memory_watch.sh   # 70% 로 더 빡빡하게
 | `kafka-topics.sh` 가 connection refused | Kafka KRaft 컨트롤러가 아직 안 떴음. 30초 대기 후 재시도 | — |
 | MinIO 콘솔 접속 안 됨 | 9001 포트 충돌. `lsof -i :9001` 로 확인 | — |
 | 메모리 80% 초과 | Spark 가 떠 있는지 확인 (Day 9 외에는 안 떠 있어야 함). 또는 Flink TaskManager heap 축소 | — |
+| docker network 안 client (Airflow dbt subprocess) 가 Lakekeeper REST 에 `localhost:8181 connection refused` | Lakekeeper `/v1/config` 의 `overrides.uri` 가 server-side base URI 를 vend 해 client `uri` kwargs 를 강제 override (REST spec). Day 1 setup 시 BASE_URI = host-friendly `localhost:8181` 로 set 되어 있어 컨테이너 안 localhost = self → fail. **해결 (PR α2)** — `LAKEKEEPER__BASE_URI=http://lakekeeper:8181` 로 docker hostname 통일 + host `/etc/hosts` 에 `127.0.0.1 lakekeeper minio` alias 추가 → host port mapping (8181:8181, 9000:9000) 통해 host 측 client 도 동일 hostname 으로 resolve | Day 6 진입 hotfix (PR α2) |
 
 ## 관련 문서
 
