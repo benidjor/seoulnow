@@ -1,0 +1,27 @@
+# dbt profile — DuckDB in-memory (Iceberg + httpfs ext) 로 MinIO Iceberg 직접 read.
+#
+# 실 운영 profiles.yml 작성:
+#   cp dbt/seoul/profiles.yml.example dbt/seoul/profiles.yml
+#   # MinIO credentials 는 프로젝트 루트 `.env` 의 MINIO_ROOT_USER / MINIO_ROOT_PASSWORD 와 일치시킨다.
+#   # 본 example 은 docker-compose 기본값 (minioadmin / minioadmin) placeholder.
+#
+# dbt 실행:
+#   cd dbt/seoul
+#   DBT_PROFILES_DIR=$(pwd) uv run --project ../.. dbt parse
+#
+seoul_duckdb:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ":memory:"
+      extensions:
+        - iceberg
+        - httpfs
+      settings:
+        s3_endpoint: "localhost:9000"
+        s3_access_key_id: "minioadmin"
+        s3_secret_access_key: "minioadmin"
+        s3_region: "us-east-1"
+        s3_use_ssl: false
+        s3_url_style: "path"

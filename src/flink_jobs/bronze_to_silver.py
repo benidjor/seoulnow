@@ -62,7 +62,7 @@ def register_kafka_source_hotspot(t_env: TableEnvironment) -> None:
 
 def create_bronze_table(t_env: TableEnvironment) -> None:
     t_env.execute_sql(
-        f"""
+        """
         CREATE TABLE IF NOT EXISTS ice.bronze.hotspot_raw (
           area_code STRING,
           area_name STRING,
@@ -85,7 +85,7 @@ def create_bronze_table(t_env: TableEnvironment) -> None:
 
 def create_silver_table(t_env: TableEnvironment) -> None:
     t_env.execute_sql(
-        f"""
+        """
         CREATE TABLE IF NOT EXISTS ice.silver.hotspot_congestion (
           area_code STRING,
           area_name STRING,

@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: stg_hotspot_silver
+    description: Silver hotspot 정규화 staging (dbt python model, lib/duckdb_iceberg 우회 read).
+    columns:
+      - name: area_code
+        description: POI001~ 형식.
+        tests:
+          - not_null
+          - dbt_utils.not_empty_string
+      - name: district
+        description: 자치구.
+        tests:
+          - not_null
+      - name: congest_level_score
+        description: |
+          0~4. 0=알수없음 (region 매핑 안 됨), 1=여유, 2=보통, 3=약간 붐빔,
+          4=붐빔. Task 5.2 deviation 으로 staging 에서 filter 제거 → 0 포함.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4]
+      - name: api_response_ts
+        tests:
+          - not_null
+
+  - name: fact_hotspot_congestion_hourly
+    description: 자치구 × 시각 시간단위 평균 (dbt mart, 7일 sliding window).
+    columns:
+      - name: window_hour
+        tests:
+          - not_null
+      - name: district
+        tests:
+          - not_null
+      - name: area_count
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - window_hour
+            - district

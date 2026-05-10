@@ -50,6 +50,8 @@ logs/
 # dbt
 target/
 dbt_packages/
+dbt/seoul/profiles.yml
+dbt/seoul/.user.yml
 
 # Local data / scratch
 *.local

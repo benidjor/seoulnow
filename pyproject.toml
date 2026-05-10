@@ -32,10 +32,29 @@ dev = [
     "mypy>=1.11",
     "respx>=0.21",
 ]
+# dbt: PyFlink 1.20 transitive apache-beam 2.48 의 protobuf 범위
+# (protobuf<4.24) 와 dbt-core>=1.9 의 protobuf 요구가 dev+flink 동시 sync 시
+# 충돌 → 별도 extra 로 분리. local 에선 `uv sync --extra dbt`, CI 의 dbt job
+# 도 `--extra dbt` 만. 본 프로젝트의 dbt = batch / flink = streaming 영역
+# 분리 원칙 (spec §5-8 3계층) 과 정합.
+dbt = [
+    "dbt-core>=1.9",
+    "dbt-duckdb>=1.9",
+]
 
 [tool.uv]
 package = true
 no-build-isolation-package = ["apache-beam"]
+# flink (apache-beam 2.48) 와 dbt (dbt-core 1.9+) 의 protobuf 버전 범위가
+# 양립 불가 → conflicts 명시. lock / sync 시 두 extra 를 한 환경에서 묶지 않음.
+# local 에선 streaming 작업 = `--extra flink`, dbt 작업 = `--extra dbt` 로
+# 분리. CI 도 job 별 분리.
+conflicts = [
+    [
+        { extra = "flink" },
+        { extra = "dbt" },
+    ],
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/platform_common", "src/producers", "src/flink_jobs"]
