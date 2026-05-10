@@ -1,0 +1,27 @@
+{
+  "name": "scp-pg-places",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "scp",
+    "database.password": "scp_dev_password",
+    "database.dbname": "scp",
+    "database.server.name": "scp",
+    "topic.prefix": "scp",
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "filtered",
+    "slot.name": "scp_places_slot",
+    "schema.include.list": "public",
+    "table.include.list": "public.places",
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false",
+    "transforms": "rename",
+    "transforms.rename.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.rename.regex": "scp\\.public\\.places",
+    "transforms.rename.replacement": "place.master.cdc.v1",
+    "key.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "false"
+  }
+}
