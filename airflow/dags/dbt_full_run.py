@@ -21,6 +21,12 @@ Plan 대비 변경 (Task 5.6):
 - `DBT_PROFILES_DIR=/opt/airflow/dbt/seoul` (host 의 profiles.yml 마운트).
 - Day 6 hotfix: PYTHONPATH 추가 (dbt python model 의 flink_jobs /
   platform_common import 경로 보강 — `./src` ro mount 에 대응).
+- Day 6 hotfix follow-up: `LAKEKEEPER_URL` / `MINIO_ENDPOINT` 도
+  `dbt_env` dict 에 명시 추가. `BashOperator(env=dict, append_env=True)`
+  의 os.environ inherit 가 dbt-duckdb 의 python model subprocess 까지
+  닿지 않아 `platform_common.Settings` 가 default `localhost:*` 사용 →
+  Connection refused 발생 (PR α0 머지 후 attempt 3 재현). dict 에 직접
+  set 한 키 (`PYTHONPATH`) 는 정상 transmitted 인 점이 결정 증거.
 """
 from __future__ import annotations
 
@@ -51,6 +57,12 @@ dbt_env = {
     # docker-compose 에서 `./src:/opt/airflow/repo-src:ro` mount, 여기서
     # path 추가.
     "PYTHONPATH": "/opt/airflow/repo-src",
+    # Day 6 hotfix follow-up — `BashOperator(append_env=True)` 가
+    # dbt-duckdb python model subprocess 까지 inherit 안 됨. dict 에
+    # 명시 set 한 키만 transmitted (PYTHONPATH 가 정상 작동한 점이
+    # 증거). `platform_common.Settings` 의 docker DNS override.
+    "LAKEKEEPER_URL": "http://lakekeeper:8181",
+    "MINIO_ENDPOINT": "http://minio:9000",
 }
 
 
