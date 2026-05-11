@@ -43,3 +43,29 @@ models:
           combination_of_columns:
             - window_hour
             - district
+
+  - name: chill_open_now
+    description: |
+      한가 (avg_congest_score <= 2) + active 가게 후보 (dbt python model, Day 8 Task 8.2).
+      영업중 판정 (`is_open_now`) 은 API 응답 시점에 Python 재계산 — 본 mart 는 정적 후보만.
+      dim_place (CDC) + bronze.places_static (정적 인허가) union + biz_reg_no dedup.
+    columns:
+      - name: biz_reg_no
+        tests:
+          - not_null
+          - unique
+      - name: district
+        tests:
+          - not_null
+      - name: avg_congest_score
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "<= 2"
+      - name: open_hour
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND open_hour <= 24"
+      - name: close_hour
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0 AND close_hour <= 24"

@@ -1,12 +1,16 @@
 version: 2
 
-# silver schema sources.
+# silver / bronze schema sources.
 #
-# Iceberg `silver.*` 테이블을 dbt source 로 등록한다. 실 read 경로는 Lakekeeper
-# REST → pyiceberg `plan_files()` → DuckDB `read_parquet()` 우회 패턴
-# (`flink_jobs.lib.duckdb_iceberg`) 으로 staging python model 안에서 이루어지며,
-# 본 source 정의는 lineage / docs / 추후 freshness check 의 단일 출처 metadata
-# 역할.
+# Iceberg `silver.*` / `bronze.*` 테이블을 dbt source 로 등록한다. 실 read
+# 경로는 Lakekeeper REST → pyiceberg `plan_files()` → DuckDB `read_parquet()`
+# 우회 패턴 (`flink_jobs.lib.duckdb_iceberg`) 으로 staging / mart python model
+# 안에서 이루어지며, 본 source 정의는 lineage / docs / 추후 freshness check 의
+# 단일 출처 metadata 역할.
+#
+# `bronze.places_static` (Day 8 Task 8.1) 은 Iceberg 정식 등록 전 단계 — DuckDB
+# 가 직접 parquet path 를 read_parquet() 한다. Day 9 Spark 일시 기동 시 Iceberg
+# `CREATE TABLE LIKE`/`MIGRATE` 로 메타데이터 등록 예정.
 sources:
   - name: silver
     description: PyFlink streaming → Iceberg silver layer (정규화 + 행정구역 join 후 단계).
@@ -23,3 +27,24 @@ sources:
           - name: valid_from
           - name: valid_to
           - name: is_current
+
+  - name: bronze
+    description: 정적 1회 적재 데이터 (parquet 직접 읽기, Iceberg 정식 등록은 Day 9 Spark).
+    meta:
+      iceberg_namespace: bronze
+    tables:
+      - name: places_static
+        description: 공공 인허가 일반음식점/휴게음식점 샘플 (Day 8 Task 8.1, 10 행).
+        meta:
+          external_location: "s3://seoul-warehouse/warehouse/bronze/places_static_v1/data.parquet"
+        columns:
+          - name: biz_reg_no
+          - name: name
+          - name: category
+          - name: district
+          - name: gu_code
+          - name: latitude
+          - name: longitude
+          - name: open_hour
+          - name: close_hour
+          - name: status
