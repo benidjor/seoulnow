@@ -26,6 +26,7 @@ out/
 dist/
 build/
 .pnpm-store/
+*.tsbuildinfo
 
 # Environment / Secrets
 .env
