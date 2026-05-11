@@ -1,6 +1,6 @@
 # Day 8 — chill-open 데모 + Cloudflare 실 배포 운영 매뉴얼
 
-PR #45~50 머지 후의 chill-open 데모 (정적 인허가 + dbt mart + API + Next.js 페이지) + Cloudflare Pages 실 배포 + 임시 Tunnel 의 평소 기동 / 진단 / mitigation 운영 절차.
+PR #45-50 머지 후의 chill-open 데모 (정적 인허가 + dbt mart + API + Next.js 페이지) + Cloudflare Pages 실 배포 + 임시 Tunnel 의 평소 기동 / 진단 / mitigation 운영 절차.
 
 > **archive SoT** — 본 runbook 의 학습 자산은 다음 archive 2건 참조:
 > - [`../portfolio/troubleshooting/2026-05-12-day-8-archive.md`](../portfolio/troubleshooting/2026-05-12-day-8-archive.md) — Day 8 코드 학습 5건 + SLO 24h TBD
@@ -189,7 +189,7 @@ Cloudflare 대시보드 → Workers & Pages → seoul-citydata-platform → Sett
 
 #### 7-C. Retry deployment
 
-Deployments → "..." → Retry deployment. 약 2~3분 빌드 + deploy.
+Deployments → "..." → Retry deployment. 약 2-3분 빌드 + deploy.
 
 #### 7-D. caffeinate (sleep 방지) 의무
 
@@ -233,14 +233,14 @@ pkill -f "cloudflared tunnel"
 uv run python scripts/duckdb_check.py | tail -25
 ```
 
-**streaming alive 의 정공 검증** = `silver_arrival_ts` 가 **현재 시간 - 5분 이내**. gold window_start 는 tumbling + watermark 의존이라 silver 보다 5~10분 뒤처지는 게 정상 (Day 4 archive §watermark SoT).
+**streaming alive 의 정공 검증** = `silver_arrival_ts` 가 **현재 시간 - 5분 이내**. gold window_start 는 tumbling + watermark 의존이라 silver 보다 5-10분 뒤처지는 게 정상 (Day 4 archive §watermark SoT).
 
 | 지표 | 정상 |
 |---|---|
-| bronze 누적 row | producer 5분 polling 마다 +3~9 row |
+| bronze 누적 row | producer 5분 polling 마다 +3-9 row |
 | silver_arrival_ts | 현재 시간 - 5분 이내 |
-| gold window_start | silver 최신 window 보다 5~10분 뒤 |
-| `/api/chill-open` count | 시각 따라 0~10 (영업 시간 + 한가 자치구 조합) |
+| gold window_start | silver 최신 window 보다 5-10분 뒤 |
+| `/api/chill-open` count | 시각 따라 0-10 (영업 시간 + 한가 자치구 조합) |
 | Cloudflare Pages chunk status | 모두 200 또는 304 (캐시됨) |
 
 ### 진단 명령
@@ -411,5 +411,5 @@ Day 8 archive §6 SoT 의 Pages project 재생성 후의 현재 설정:
 - Day 7 PR γ archive: [`../portfolio/troubleshooting/2026-05-11-day-7-nextjs-cloudflare-deploy.md`](../portfolio/troubleshooting/2026-05-11-day-7-nextjs-cloudflare-deploy.md)
 - Day 7 PR δ archive: [`../portfolio/troubleshooting/2026-05-11-day-7-streaming-smoke-timeout-restart.md`](../portfolio/troubleshooting/2026-05-11-day-7-streaming-smoke-timeout-restart.md)
 - Cloudflare 자동화 docs: [`../../infra/cloudflare/README.md`](../../infra/cloudflare/README.md)
-- Plan: `docs/superpowers/plans/phase-1a-week-2.md` Day 8 Task 8.1~8.3 (line 1567~2037)
+- Plan: `docs/superpowers/plans/phase-1a-week-2.md` Day 8 Task 8.1-8.3 (line 1567-2037)
 - Spec: `docs/superpowers/specs/2026-04-30-seoul-citydata-platform-phase1-design.md` §6-1 Day 8 / §6 사용자 화면 #2
