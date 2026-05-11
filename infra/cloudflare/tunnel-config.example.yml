@@ -1,0 +1,14 @@
+# Cloudflare Tunnel config 템플릿.
+# 복사: cp infra/cloudflare/tunnel-config.example.yml ~/.cloudflared/config.yml
+# UUID / 도메인은 본인 계정 값으로 교체. credentials 본문은 *절대* commit 금지.
+#
+# 참고: 본 파일은 .example.yml 만 commit 대상. 실 값이 박힌 tunnel-config.yml 은
+# .gitignore 로 차단되어 있다 (Cloudflare 영역 참조).
+
+tunnel: <YOUR_TUNNEL_UUID>
+credentials-file: /Users/<you>/.cloudflared/<YOUR_TUNNEL_UUID>.json
+
+ingress:
+  - hostname: api.<your-domain>.com
+    service: http://localhost:8000
+  - service: http_status:404
