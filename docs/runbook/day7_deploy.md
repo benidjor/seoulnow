@@ -19,10 +19,13 @@
 - [ ] **FastAPI healthy (로컬)** — `curl http://localhost:8000/health` → `{"ok":true}` 반환
 - [ ] **Tunnel 정상** — `cloudflared tunnel run scp-api` 가 떠 있고 `curl https://api.<your-domain>.com/health` 200 반환
 - [ ] **Pages build env 정착** — `web/.env.production` 또는 `wrangler pages` Production env 에 `NEXT_PUBLIC_API_BASE=https://api.<your-domain>.com` 등록되어 있음
-  - 검증: `pnpm build` 산출물 `web/out/_next/static/chunks/*.js` 안에 `localhost:8000` 문자열이 0건이어야 함
+  - 검증: **prod build 직후 (env 정착 후)** `pnpm build` 산출물 `web/out/_next/static/chunks/*.js` 안에 `localhost:8000` 문자열이 0건이어야 함
     ```bash
     cd web && grep -r "localhost:8000" out/ 2>/dev/null | head -3
-    # 0 hit 기대. 1건 이상 시 build env 누락 → 재빌드.
+    # prod build (env 정착) 시 0 hit 기대. 1건 이상 시 build env 누락 → 재빌드.
+    # 주의 — dev 환경에서 env 미지정 채로 `pnpm build` 하면 next.config.mjs 의
+    # fallback (`|| 'http://localhost:8000'`) 이 chunk 에 inline 되어 1 hit 정상 출력됨.
+    # 본 점검 항목은 prod 배포 직전 시점 (NEXT_PUBLIC_API_BASE 정착 상태) 에서만 의미.
     ```
 - [ ] **Pages 배포 성공** — `wrangler pages deploy out --project-name seoul-citydata --branch main` 가 deploy URL 반환
 - [ ] **마커 출력** — `https://seoul-citydata.pages.dev/` 접속 → 지도 + 핫스팟 마커 1개 이상 + tooltip 텍스트 정상
