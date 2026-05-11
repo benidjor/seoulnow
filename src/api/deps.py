@@ -15,6 +15,7 @@ plan deviation 4) 의 정착 패턴 (`flink_jobs.lib.duckdb_iceberg`) 위임.
 `scripts/duckdb_check.py` / `slo_metrics.fetch_samples_from_gold` 와
 같은 lib helper 를 공유 — 신규 SECRET DDL drift 위험 0.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache

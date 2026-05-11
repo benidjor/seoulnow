@@ -73,13 +73,14 @@ nohup JAVA_HOME=... uv run --extra flink python -m flink_jobs.silver_to_gold > /
 disown
 ```
 
-각 job 의 default smoke run 시간 = 600 초 (10 분). 환경변수 override:
+각 job 의 default = **long-running mode** (SIGTERM 까지 대기 + 1h heartbeat, hotfix PR #46 + `src/flink_jobs/lib/lifecycle.py` SoT). smoke 검증을 원하면 환경변수 명시 export 의무:
 
 ```bash
-FLINK_SMOKE_RUN_SECONDS=1800   # silver_to_gold 30 분 가동
+# smoke 모드 — 30분 가동 후 자연 종료
+FLINK_SMOKE_RUN_SECONDS=1800 nohup uv run --extra flink python -m flink_jobs.silver_to_gold > /tmp/s2g.log 2>&1 &
 ```
 
-5분 텀블링 윈도우가 close 되려면 최소 10 분+ 가동 필요 (1 ~ 2 윈도우 close).
+5분 텀블링 윈도우가 close 되려면 최소 10 분+ 가동 필요 (1 ~ 2 윈도우 close). long-running 모드는 무한 가동이므로 자동 충족.
 
 ### 2. Gold 적재 확인
 

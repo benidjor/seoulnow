@@ -8,6 +8,7 @@ DuckDB `read_parquet(?, hive_partitioning=true)` 로 read. path list 는
 응답 schema 검증 — silver_to_gold.py 의 gold DDL 11 컬럼 + bronze_to_silver.py
 의 silver DDL 17 컬럼 모두 plan 의 응답 cols 와 일치 → deviation E 불필요.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -56,8 +57,14 @@ def list_hotspots() -> dict[str, Any]:
         """,
         [paths],
     ).fetchall()
-    cols = ["district", "gu_code", "window_start", "area_count",
-            "avg_congest_score", "max_congest_score"]
+    cols = [
+        "district",
+        "gu_code",
+        "window_start",
+        "area_count",
+        "avg_congest_score",
+        "max_congest_score",
+    ]
     items = [_row_to_dict(cols, r) for r in rows]
     return {"items": items, "count": len(items)}
 
@@ -84,7 +91,15 @@ def list_areas() -> dict[str, Any]:
         """,
         [paths],
     ).fetchall()
-    cols = ["area_code", "area_name", "district", "latitude", "longitude",
-            "congest_level_score", "congest_level", "api_response_ts"]
+    cols = [
+        "area_code",
+        "area_name",
+        "district",
+        "latitude",
+        "longitude",
+        "congest_level_score",
+        "congest_level",
+        "api_response_ts",
+    ]
     items = [_row_to_dict(cols, r) for r in rows]
     return {"items": items, "count": len(items)}

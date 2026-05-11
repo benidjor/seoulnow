@@ -62,7 +62,7 @@ FLINK_SMOKE_RUN_SECONDS=600 \
 - Kafka source `seoul.hotspot.congestion.v1` 의 메시지 read
 - `ice.bronze.hotspot_raw` 에 INSERT (PyFlink 의 Iceberg sink, 30 초 checkpoint 마다 commit)
 - `ice.bronze.hotspot_raw` → 같은 catalog 의 `ice.silver.hotspot_congestion` (region 매핑 + congest score 변환 + partition by district)
-- `SMOKE_RUN_SECONDS` 까지 main 대기 후 종료
+- `FLINK_SMOKE_RUN_SECONDS` 환경변수 의존 — **default 0 (long-running mode)**, SIGTERM 까지 대기 + 1h heartbeat. **smoke 검증 시 명시적으로 `FLINK_SMOKE_RUN_SECONDS=600` export 의무** (위 명령 line 56 패턴). hotfix PR #46 + `src/flink_jobs/lib/lifecycle.py` SoT.
 
 ### 백그라운드 실행 (장기)
 
