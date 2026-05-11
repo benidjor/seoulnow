@@ -13,6 +13,8 @@ dependencies = [
     "structlog>=24.1",
     "duckdb>=1.1",
     "pyiceberg[duckdb,s3fs]>=0.7",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -57,7 +59,7 @@ conflicts = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/platform_common", "src/producers", "src/flink_jobs"]
+packages = ["src/platform_common", "src/producers", "src/flink_jobs", "src/api"]
 
 [build-system]
 requires = ["hatchling"]
