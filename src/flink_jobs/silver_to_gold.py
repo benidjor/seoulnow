@@ -27,22 +27,20 @@ bronze_to_silver.py 와 동일하게 적용된 보강:
     iceberg_sink.register_iceberg_catalog 가 ice.{bronze,silver,gold}
     flat database 로 register 하므로 4-part (ice.seoul.silver.x) 금지.
 """
+
 from __future__ import annotations
 
 import logging
-import os
-import time
 
 from pyflink.table import TableEnvironment
 
 from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
+from flink_jobs.lib.lifecycle import wait_for_shutdown
 from platform_common import get_settings
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-
-SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
 
 
 def create_gold_table(t_env: TableEnvironment) -> None:
@@ -141,9 +139,7 @@ def run() -> None:
     """
     t_env.execute_sql(insert_sql)
     log.info("Silver→Gold streaming job submitted (5min tumbling, district)")
-    log.info("Streaming 가동 중. SIGTERM 대기 (최대 %ds).", SMOKE_RUN_SECONDS)
-    time.sleep(SMOKE_RUN_SECONDS)
-    log.info("Smoke run timeout, exiting.")
+    wait_for_shutdown()
 
 
 if __name__ == "__main__":

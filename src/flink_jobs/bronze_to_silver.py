@@ -11,23 +11,22 @@ Run (smoke):
   - docker compose 4종 (kafka / lakekeeper / minio / postgres) healthy
   - JDK 17 (Eclipse Temurin) 설치 + JAVA_HOME 설정
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import time
 
 from pyflink.table import DataTypes, TableEnvironment
 from pyflink.table.udf import udtf
 
 from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
+from flink_jobs.lib.lifecycle import wait_for_shutdown
 from flink_jobs.lib.transforms import enrich_hotspot_silver
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-
-SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
 
 
 def register_kafka_source_hotspot(t_env: TableEnvironment) -> None:
@@ -110,20 +109,26 @@ def create_silver_table(t_env: TableEnvironment) -> None:
     )
 
 
-@udtf(result_types=DataTypes.ROW(
-    [
-        DataTypes.FIELD("district", DataTypes.STRING()),
-        DataTypes.FIELD("gu_code", DataTypes.STRING()),
-        DataTypes.FIELD("latitude", DataTypes.DOUBLE()),
-        DataTypes.FIELD("longitude", DataTypes.DOUBLE()),
-        DataTypes.FIELD("congest_level_score", DataTypes.INT()),
-    ]
-))
+@udtf(
+    result_types=DataTypes.ROW(
+        [
+            DataTypes.FIELD("district", DataTypes.STRING()),
+            DataTypes.FIELD("gu_code", DataTypes.STRING()),
+            DataTypes.FIELD("latitude", DataTypes.DOUBLE()),
+            DataTypes.FIELD("longitude", DataTypes.DOUBLE()),
+            DataTypes.FIELD("congest_level_score", DataTypes.INT()),
+        ]
+    )
+)
 def enrich_tf(area_code: str, congest_level: str):
     """Table function. region 매핑 성공 시 1 row, 미매핑 시 0 row (자동 drop)."""
-    bronze = {"area_code": area_code, "congest_level": congest_level,
-              "population_min": None, "population_max": None,
-              "api_response_ts": None}
+    bronze = {
+        "area_code": area_code,
+        "congest_level": congest_level,
+        "population_min": None,
+        "population_max": None,
+        "api_response_ts": None,
+    }
     silver = enrich_hotspot_silver(bronze)
     if silver is None:
         return  # 빈 yield → row 자체 drop
@@ -191,11 +196,8 @@ def run() -> None:
     stmt_set.execute()
     log.info("Bronze + Silver streaming jobs submitted (StatementSet)")
     # PyFlink LocalEnvironment 는 detached mode 미지원 — main 종료 = background job 종료.
-    # smoke 검증 + checkpoint commit (30초 간격) 을 위해 main 에서 명시적 대기.
-    # SIGTERM 받으면 즉시 종료. 운영 시점에는 별도 deploy mode (per-job cluster) 로 변경 검토.
-    log.info("Streaming 가동 중. SIGTERM 대기 (최대 %ds).", SMOKE_RUN_SECONDS)
-    time.sleep(SMOKE_RUN_SECONDS)
-    log.info("Smoke run timeout, exiting.")
+    # 운영 시점은 long-running default + SIGTERM graceful shutdown (PR δ §1 SoT 해소).
+    wait_for_shutdown()
 
 
 if __name__ == "__main__":

@@ -18,21 +18,20 @@ deviation A — Debezium envelope wrapping (2026-05-11 PR β):
   root field 는 ``payload`` ROW 1개만이며, ``op``/``before``/``after``/``ts_ms`` 는
   ``payload`` 안에서 unwrap.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import time
 
 from pyflink.table import TableEnvironment
 
 from flink_jobs.lib.env import build_streaming_env
 from flink_jobs.lib.iceberg_sink import register_iceberg_catalog
+from flink_jobs.lib.lifecycle import wait_for_shutdown
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-
-SMOKE_RUN_SECONDS = int(os.environ.get("FLINK_SMOKE_RUN_SECONDS", "600"))
 
 
 def register_cdc_source(t_env: TableEnvironment) -> None:
@@ -145,10 +144,7 @@ def run() -> None:
 
     log.info("CDC streaming job submitted (place.master.cdc.v1 → silver.dim_place)")
     # PyFlink LocalEnvironment 는 detached mode 미지원 — main 종료 = background job 종료.
-    # bronze_to_silver 와 동일한 SIGTERM 대기 패턴.
-    log.info("Streaming 가동 중. SIGTERM 대기 (최대 %ds).", SMOKE_RUN_SECONDS)
-    time.sleep(SMOKE_RUN_SECONDS)
-    log.info("Smoke run timeout, exiting.")
+    wait_for_shutdown()
 
 
 if __name__ == "__main__":
