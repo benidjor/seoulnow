@@ -15,6 +15,7 @@ deviation 8.2-A (사전 채택) — plan 본문 (line 1854~1888) 의 inline `CRE
 
 출처: Day 7 PR γ archive §10-4 (lib reuse 5번째 consumer) → 본 route 가 7번째 consumer.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -98,17 +99,22 @@ def chill_open() -> dict[str, Any]:
         [paths, places_static_path],
     ).fetchall()
     cols = [
-        "biz_reg_no", "name", "category", "district",
-        "latitude", "longitude", "open_hour", "close_hour", "avg_congest_score",
+        "biz_reg_no",
+        "name",
+        "category",
+        "district",
+        "latitude",
+        "longitude",
+        "open_hour",
+        "close_hour",
+        "avg_congest_score",
     ]
 
     current_hour = datetime.now().hour
     items: list[dict[str, Any]] = []
     for row in rows:
         record = _row_to_dict(cols, row)
-        record["is_open_now"] = is_open_now(
-            record["open_hour"], record["close_hour"], current_hour
-        )
+        record["is_open_now"] = is_open_now(record["open_hour"], record["close_hour"], current_hour)
         if record["is_open_now"]:
             items.append(record)
     return {"items": items, "count": len(items), "current_hour": current_hour}

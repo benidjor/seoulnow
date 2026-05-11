@@ -12,6 +12,7 @@ clock skew 영향을 받으므로 API 응답 시점에 Python `datetime.now().ho
 
 테스트: `tests/unit/test_chill_open_query.py` 6 case (TDD red → green 전환).
 """
+
 from __future__ import annotations
 
 

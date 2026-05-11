@@ -12,6 +12,7 @@ Iceberg 정식 등록은 Day 9 Spark 일시 기동 시 `MIGRATE` 또는 `CREATE 
 로 처리한다. 본 스크립트는 단순 parquet write 만 책임 — Task 8.2 의 mart 가
 DuckDB `read_parquet()` 로 직접 읽도록 설계 (plan line 1654).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,7 +43,8 @@ def main() -> None:
         SELECT * FROM read_csv_auto('{args.csv}', header=true)
         """
     )
-    rows = con.execute("SELECT count(*) FROM scratch.places_static").fetchone()[0]
+    row = con.execute("SELECT count(*) FROM scratch.places_static").fetchone()
+    rows = row[0] if row is not None else 0
     print(f"loaded {rows} rows from {args.csv}")
 
     # DuckDB 0.x 의 iceberg 쓰기는 미성숙 → parquet 로 직접 적재 후 Iceberg 메타데이터는

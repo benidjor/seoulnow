@@ -8,6 +8,7 @@ Run:
   - Lakekeeper / MinIO 컨테이너 가동 중
   - silver/gold Iceberg table 적재 (bronze_to_silver / silver_to_gold streaming)
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI

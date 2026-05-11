@@ -28,6 +28,7 @@ dim_place 참조 — dbt-duckdb python model 에서 `dbt.ref(name)` 은 DuckDB
 Relation 객체 (또는 in-memory view name) 반환. f-string interpolation 으로
 SQL 안에서 그대로 사용.
 """
+
 from __future__ import annotations
 
 
