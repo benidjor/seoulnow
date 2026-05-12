@@ -2,7 +2,9 @@
 
 Day 5 Task 5.8 buffer 의 echo placeholder 7개 → 본격 활성 (6개로 reduction):
 
-- snapshot_metrics_before/after = PythonOperator + pyiceberg lookup + XCom push
+- snapshot_metrics_before/after = BashOperator + dbt-venv subprocess
+  (Option B 채택, commit 4) — dbt_full_run.py 의 BashOperator + dbt-venv 패턴
+  reuse. Airflow 기본 venv 의 duckdb / pyiceberg 미설치 회피.
 - rewrite_silver_hotspot_congestion = BashOperator + docker run scp/spark +
   spark-submit compaction_silver.py
 - post_compaction_report = PythonOperator + XCom pull + send_compaction_report
@@ -15,7 +17,7 @@ Day 5 Task 5.8 buffer 의 echo placeholder 7개 → 본격 활성 (6개로 reduc
 - 병렬 실행 — TaskGroup `rewrite` (현재 single child, P1B 후 rewrite_user_event
   추가 시 병렬 발휘).
 - `max_active_tis_per_dag=3` — Spark concurrent submit 제한.
-- XCom — before/after 메트릭 (files / bytes / snapshots).
+- XCom — before/after 메트릭 (files / bytes / snapshots, JSON string).
 - on_failure_callback — `send_discord_alert` (Discord webhook + stdout
   fallback).
 - SLA 1시간 — 메모리 ceiling 위협 자동 감지.
@@ -39,6 +41,15 @@ PR α (#53) + PR β (#54) deviation reuse (변경 0건):
   또는 Phase 2 본격).
 - A4: docker socket mount + `docker run --rm` (Airflow image rebuild 회피).
 
+commit 4 deviation (Option B 채택 SoT):
+
+- 이전 commit 2 = PythonOperator + in-process `_capture_metrics` callable.
+  Airflow 기본 venv 에 duckdb / pyiceberg 미설치 → manual trigger 시
+  `ModuleNotFoundError` 발생.
+- 신규 commit 4 = BashOperator + dbt-venv subprocess (capture_metrics.py).
+  dbt_full_run.py 의 BashOperator + dbt-venv 패턴 SoT 일치. cloudpickle 의존성
+  부담 + Dockerfile rebuild 부담 둘 다 회피.
+
 보안 limitation:
 
 - docker socket mount = Airflow 컨테이너가 host docker daemon 의 root 권한
@@ -49,56 +60,31 @@ PR α (#53) + PR β (#54) deviation reuse (변경 0건):
 
 from __future__ import annotations
 
-import logging
-import sys
 from datetime import datetime, timedelta
-from typing import Any
 
-# PythonOperator in-process 호출 위해 PYTHONPATH 추가.
-# dbt_full_run.py 의 BashOperator subprocess 패턴 (PYTHONPATH=/opt/airflow/repo-src)
-# 의 PythonOperator equivalent — PythonOperator 는 in-process 라 sys.path 직접 주입.
-# `_capture_metrics` 안에서 `flink_jobs.lib.duckdb_iceberg` import 시 필요.
-sys.path.insert(0, "/opt/airflow/repo-src")  # noqa: E402
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from airflow.utils.task_group import TaskGroup
+from common.callbacks import send_compaction_report, send_discord_alert
 
-from airflow import DAG  # noqa: E402, I001
-from airflow.operators.bash import BashOperator  # noqa: E402
-from airflow.operators.python import PythonOperator  # noqa: E402
-from airflow.utils.task_group import TaskGroup  # noqa: E402
-
-from common.callbacks import send_compaction_report, send_discord_alert  # noqa: E402
-
-log = logging.getLogger(__name__)
+from airflow import DAG
 
 SILVER_TABLE = "silver.hotspot_congestion"
 SPARK_IMAGE = "scp/spark:3.5.3-iceberg"
 SPARK_NETWORK = "scp_default"  # compose project name `scp` SoT (docker-compose.yml L1)
 
+# Option B (commit 4) — BashOperator + dbt-venv subprocess.
+# dbt_full_run.py 의 Day 5 본진 정공 패턴 SoT 일치.
+DBT_VENV_PYTHON = "/opt/airflow/dbt-venv/bin/python"
+CAPTURE_METRICS_SCRIPT = "/opt/airflow/dags/common/capture_metrics.py"
 
-def _capture_metrics(table: str, **context: Any) -> dict[str, Any]:
-    """pyiceberg 로 Iceberg table 의 file / byte / snapshot 메트릭 측정 + XCom push.
-
-    Day 9 PR γ — Airflow PythonOperator in-process 호출. dbt_full_run.py 의
-    PYTHONPATH=/opt/airflow/repo-src env (BashOperator subprocess) 와 동일
-    정신이지만, PythonOperator in-process 라 module-level `sys.path.insert`
-    로 호출 의무.
-    """
-    from flink_jobs.lib.duckdb_iceberg import build_catalog
-
-    catalog = build_catalog()
-    iceberg_table = catalog.load_table(table)
-    files = list(iceberg_table.scan().plan_files())
-    n_files = len(files)
-    total_bytes = sum(f.file.file_size_in_bytes for f in files)
-    n_snapshots = len(list(iceberg_table.snapshots()))
-
-    metrics = {
-        "table": table,
-        "files": n_files,
-        "bytes": total_bytes,
-        "snapshots": n_snapshots,
-    }
-    log.info("Metrics captured: %s", metrics)
-    return metrics
+metrics_env = {
+    # dbt_full_run.py 의 Day 6 hotfix follow-up 패턴 reuse — dict 에 명시 set
+    # 한 키만 subprocess 에 transmitted (append_env=True 가 base env merge).
+    "PYTHONPATH": "/opt/airflow/repo-src",
+    "LAKEKEEPER_URL": "http://lakekeeper:8181",
+    "MINIO_ENDPOINT": "http://minio:9000",
+}
 
 
 default_args = {
@@ -120,10 +106,12 @@ with DAG(
     max_active_runs=1,
     tags=["airflow", "day9", "task9.3", "iceberg-maintenance"],
 ) as dag:
-    snapshot_metrics_before = PythonOperator(
+    snapshot_metrics_before = BashOperator(
         task_id="snapshot_metrics_before",
-        python_callable=_capture_metrics,
-        op_kwargs={"table": SILVER_TABLE},
+        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE}",
+        env=metrics_env,
+        append_env=True,
+        do_xcom_push=True,
     )
 
     with TaskGroup("rewrite") as rewrite:
@@ -164,10 +152,12 @@ with DAG(
         ),
     )
 
-    snapshot_metrics_after = PythonOperator(
+    snapshot_metrics_after = BashOperator(
         task_id="snapshot_metrics_after",
-        python_callable=_capture_metrics,
-        op_kwargs={"table": SILVER_TABLE},
+        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE}",
+        env=metrics_env,
+        append_env=True,
+        do_xcom_push=True,
     )
 
     post_compaction_report = PythonOperator(

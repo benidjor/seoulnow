@@ -1,16 +1,20 @@
 """iceberg_maintenance DAG 단위 테스트 (DAG parsing + task graph + 본진 기능 검증).
 
-Day 9 PR γ 신규 — Plan §Task 9.3 TDD Step 1-4 의 4 case + 본진 기능
-추가 case (총 8 case):
+Day 9 PR γ — Plan §Task 9.3 TDD Step 1-4 의 4 case + 본진 기능 추가 case
++ commit 4 의 Option B fix case (총 10 case):
 
 1. DAG 파싱 OK + dag_id 정합.
 2. schedule = `0 3 * * *` 활성 (Day 9 본격 활성 SoT).
 3. task 6개 + `rewrite_dim_place` 제거 + task_id rename 확인 (A1 + A2).
 4. rewrite task = BashOperator + `docker run --rm` + scp_default network (A4).
-5. snapshot_metrics_before/after = PythonOperator.
+5. snapshot_metrics_before/after = BashOperator + dbt-venv subprocess
+   (commit 4 의 Option B fix — 이전 commit 2 의 PythonOperator → 정정).
 6. post_compaction_report = `send_compaction_report` callable.
 7. SLA 1h + on_failure_callback = send_discord_alert (본진 기능).
-8. send_compaction_report XCom None / 압축률 계산 정합 (helper 함수 자체).
+8. send_compaction_report XCom None / 압축률 계산 정합 (dict mock, helper 함수).
+9. capture_metrics.py helper script 존재 (commit 4 신규).
+10. send_compaction_report 가 BashOperator stdout JSON string XCom parse 정공
+    (commit 4 의 Option B 의 backward compat 검증).
 """
 
 from __future__ import annotations
@@ -101,15 +105,23 @@ def test_rewrite_task_uses_bash_operator_with_docker_run():
     assert "scp_default" in task.bash_command  # network SoT
 
 
-def test_metrics_tasks_use_python_operator():
-    """snapshot_metrics_before/after = PythonOperator."""
-    from airflow.operators.python import PythonOperator
+def test_metrics_tasks_use_bash_operator_with_dbt_venv():
+    """snapshot_metrics_before/after = BashOperator + dbt-venv subprocess (commit 4 Option B).
+
+    이전 commit 2 의 PythonOperator in-process 호출은 Airflow 기본 venv 의
+    duckdb / pyiceberg 미설치로 ModuleNotFoundError fail. commit 4 fix =
+    BashOperator + /opt/airflow/dbt-venv/bin/python + capture_metrics.py.
+    """
+    from airflow.operators.bash import BashOperator
     from iceberg_maintenance import dag  # type: ignore
 
-    before_task = dag.get_task("snapshot_metrics_before")
-    after_task = dag.get_task("snapshot_metrics_after")
-    assert isinstance(before_task, PythonOperator)
-    assert isinstance(after_task, PythonOperator)
+    for tid in ("snapshot_metrics_before", "snapshot_metrics_after"):
+        task = dag.get_task(tid)
+        assert isinstance(task, BashOperator)
+        assert "/opt/airflow/dbt-venv/bin/python" in task.bash_command
+        assert "capture_metrics.py" in task.bash_command
+        assert "silver.hotspot_congestion" in task.bash_command
+        assert task.do_xcom_push is True
 
 
 def test_post_compaction_report_uses_send_compaction_report():
@@ -145,7 +157,10 @@ def test_send_compaction_report_xcom_pull_no_data():
 
 
 def test_send_compaction_report_calculates_reduction():
-    """send_compaction_report 가 file_reduction_pct 정공 계산 + stdout fallback OK."""
+    """send_compaction_report 가 file_reduction_pct 정공 계산 + stdout fallback OK.
+
+    dict 형태 XCom payload (이전 commit 2 PythonOperator return) backward compat.
+    """
     from unittest.mock import MagicMock, patch
 
     from common.callbacks import send_compaction_report  # type: ignore
@@ -167,6 +182,48 @@ def test_send_compaction_report_calculates_reduction():
         },
     ]
     # webhook 미설정 — stdout fallback 으로 안전 호출
+    with patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": ""}, clear=False):
+        send_compaction_report(task_instance=ti)
+    # exception 0건 = PASS
+
+
+def test_capture_metrics_script_exists():
+    """capture_metrics.py helper script 가 dags/common/ 에 존재 (commit 4 신규)."""
+    script = ROOT / "airflow" / "dags" / "common" / "capture_metrics.py"
+    assert script.exists(), f"helper script 부재: {script}"
+
+
+def test_send_compaction_report_parses_json_string():
+    """send_compaction_report 가 BashOperator stdout JSON string XCom parse 정공 (commit 4).
+
+    Option B 정공 검증 — BashOperator do_xcom_push 의 stdout 마지막 line 은
+    JSON string. json.loads 후 dict 복원하여 압축률 계산.
+    """
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from common.callbacks import send_compaction_report  # type: ignore
+
+    ti = MagicMock()
+    # BashOperator do_xcom_push = stdout 마지막 line (JSON string)
+    ti.xcom_pull.side_effect = [
+        json.dumps(
+            {
+                "table": "silver.hotspot_congestion",
+                "files": 475,
+                "bytes": 2_700_000,
+                "snapshots": 100,
+            }
+        ),
+        json.dumps(
+            {
+                "table": "silver.hotspot_congestion",
+                "files": 3,
+                "bytes": 31_457_280,
+                "snapshots": 101,
+            }
+        ),
+    ]
     with patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": ""}, clear=False):
         send_compaction_report(task_instance=ti)
     # exception 0건 = PASS

@@ -55,17 +55,30 @@ def send_compaction_report(**context: Any) -> None:
 
     PythonOperator callable 시그니처 (Airflow 가 `**context` 로 dict 전달).
     XCom 의 task_ids `snapshot_metrics_before` + `snapshot_metrics_after`
-    의 return_value (dict) pull 후 압축률 계산.
+    의 return_value pull 후 압축률 계산.
 
-    Day 9 PR γ 신규 — iceberg_maintenance DAG 의 `post_compaction_report`
-    task. webhook 미설정 / XCom None 둘 다 stdout fallback (no exception).
+    Day 9 PR γ commit 4 — XCom payload 가 BashOperator stdout 의 JSON
+    string (이전 commit 2 의 PythonOperator return dict 와 다름). isinstance
+    검사로 string 시 json.loads, dict 시 그대로 (backward compat 보장 —
+    unit test 의 dict mock 도 PASS).
+
+    webhook 미설정 / XCom None 둘 다 stdout fallback (no exception).
     """
     ti = context["task_instance"]
-    before = ti.xcom_pull(task_ids="snapshot_metrics_before")
-    after = ti.xcom_pull(task_ids="snapshot_metrics_after")
+    before_raw = ti.xcom_pull(task_ids="snapshot_metrics_before")
+    after_raw = ti.xcom_pull(task_ids="snapshot_metrics_after")
 
-    if not before or not after:
-        log.warning("XCom 미존재 — before=%s after=%s", before, after)
+    if not before_raw or not after_raw:
+        log.warning("XCom 미존재 — before=%s after=%s", before_raw, after_raw)
+        return
+
+    # BashOperator do_xcom_push=True 의 stdout 마지막 line = JSON string.
+    # 이전 PythonOperator return dict 도 backward compat.
+    try:
+        before = json.loads(before_raw) if isinstance(before_raw, str) else before_raw
+        after = json.loads(after_raw) if isinstance(after_raw, str) else after_raw
+    except (json.JSONDecodeError, TypeError) as exc:
+        log.error("XCom JSON parse fail: before=%s after=%s err=%s", before_raw, after_raw, exc)
         return
 
     file_reduction = (
