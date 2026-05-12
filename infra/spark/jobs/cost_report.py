@@ -32,7 +32,7 @@ def main() -> None:
     print(f"  {'TOTAL':40s} : {monthly:>6.2f}")
     print()
     print("note: 1번 프로젝트 (레시핑) 대비 75% 인프라비 절감 흐름의 연속.")
-    print("      도메인 미사용 시 월 $0. 도메인 사용 시 월 ~$0.83.")
+    print("      도메인 미사용 시 월 $0. 도메인 사용 시 월 약 $0.83.")
 
 
 if __name__ == "__main__":
