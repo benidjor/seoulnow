@@ -35,7 +35,7 @@ Day 8 종료 (PR #45-#52 모두 머지, main HEAD `d18d608`) 후 Day 9 entry pla
 
 ![MERGE INTO 멱등성 검증 — 1차/2차 run rows + hash 동일](./2026-05-12-day-9-archive/screenshots/03-merge-idempotent.png)
 
-![Compaction 99.4% file 감소 + query 23x 가속](./2026-05-12-day-9-archive/screenshots/04-compaction-994-percent.png)
+![Compaction 99.4% file 감소 + query 23x 가속](./2026-05-12-day-9-archive/screenshots/04-compaction-file-reduction.png)
 
 ### 차별화 #4 — Airflow 본진 4 DAG 라인업 3번째 정착
 
@@ -212,7 +212,7 @@ CALL ice.system.rewrite_data_files(
 
 Iceberg `system.rewrite_data_files` procedure 의 argument 는 **현재 catalog context 안의 identifier**. Spark 의 `spark.sql.defaultCatalog ice` SoT 따라 catalog prefix 는 자동 처리. argument 는 `namespace.table` 만 전달이 standard. PR α 의 9.2-A 패턴 (3-part Spark SQL `ice.silver.hotspot_congestion` = catalog.namespace.table) 과 동일 정신 — Lakekeeper REST 의 flat single-level namespace SoT.
 
-![compaction_silver.py 99.4% 감소 + query 23x 가속](./2026-05-12-day-9-archive/screenshots/04-compaction-994-percent.png)
+![compaction_silver.py 99.4% 감소 + query 23x 가속](./2026-05-12-day-9-archive/screenshots/04-compaction-file-reduction.png)
 
 ![cost_report.py TOTAL $0.83/월](./2026-05-12-day-9-archive/screenshots/05-cost-report.png)
 
@@ -737,7 +737,7 @@ after : files=3 avg_size_mb=0.010 group_by_query_seconds=0.08
 file reduction: 99.4%
 ```
 
-**파일**: `04-compaction-994-percent.png`
+**파일**: `04-compaction-file-reduction.png`
 **캡쳐 영역**: before/after 차이 + 99.4% 감소 + query 23x 가속 시각 (레시핑의 "Compaction 도입 예정" closure 직접 증거)
 
 ### 9.2. PR β 영역 (Cost report + 운영 비용 0원 흐름, 캡쳐 1종)
@@ -887,7 +887,7 @@ failed sections: 0
 | 01 | `screenshots/01-spark-up-running.png` | Spark 컨테이너 가동 (PR α) |
 | 02 | `screenshots/02-spark-show-tables.png` | SHOW TABLES IN ice.silver (ClassLoader 사전 검증) |
 | 03 | `screenshots/03-merge-idempotent.png` | MERGE INTO 멱등성 (레시핑 closure #1) |
-| 04 | `screenshots/04-compaction-994-percent.png` | Compaction 99.4% 감소 (레시핑 closure #2) |
+| 04 | `screenshots/04-compaction-file-reduction.png` | Compaction 99.4% 감소 (레시핑 closure #2) |
 | 05 | `screenshots/05-cost-report.png` | 운영 비용 모델 ($0.83/월) |
 | 06 | `screenshots/06-airflow-dags-list.png` | Airflow 본진 4 DAG 라인업 |
 | 07 | `screenshots/07-dag-graph-view.png` | iceberg_maintenance DAG graph view (본진 기능) |
