@@ -27,7 +27,6 @@ from typing import Any
 
 from airflow.decorators import dag, task
 from airflow.models.param import Param
-
 from common.callbacks import send_discord_alert
 from common.spark_submit import submit_spark_backfill
 

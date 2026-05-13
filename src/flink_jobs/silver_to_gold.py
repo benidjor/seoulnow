@@ -57,6 +57,7 @@ def create_gold_table(t_env: TableEnvironment) -> None:
           avg_population_min DOUBLE,
           avg_population_max DOUBLE,
           last_api_response_ts TIMESTAMP(3),
+          last_silver_arrival_ts TIMESTAMP(3),
           gold_arrival_ts TIMESTAMP(3)
         ) PARTITIONED BY (district)
         WITH ('format-version' = '2')
@@ -74,9 +75,10 @@ def create_silver_source_with_watermark(t_env: TableEnvironment) -> None:
     catalog table `ice.silver.hotspot_congestion` 과 동일.
 
     drift 주의: silver schema (`bronze_to_silver.py:create_silver_table` 17
-    컬럼) 가 변경되면 본 함수의 7 컬럼 (area_code / district / gu_code /
-    congest_level_score / population_min / population_max / api_response_ts)
-    도 동기 수정 필요.
+    컬럼) 가 변경되면 본 함수의 8 컬럼 (area_code / district / gu_code /
+    congest_level_score / population_min / population_max / api_response_ts /
+    silver_arrival_ts) 도 동기 수정 필요. silver_arrival_ts 는 Day 10 PR α —
+    Platform Latency SLO 측정용 (spec §6-2 정정, Path B SoT).
     """
     s = get_settings()
     t_env.execute_sql(
@@ -89,6 +91,7 @@ def create_silver_source_with_watermark(t_env: TableEnvironment) -> None:
           population_min INT,
           population_max INT,
           api_response_ts TIMESTAMP(3),
+          silver_arrival_ts TIMESTAMP(3),
           event_time AS api_response_ts,
           WATERMARK FOR event_time AS event_time - INTERVAL '1' MINUTE
         ) WITH (
@@ -131,6 +134,7 @@ def run() -> None:
           AVG(CAST(population_min AS DOUBLE)) AS avg_population_min,
           AVG(CAST(population_max AS DOUBLE)) AS avg_population_max,
           MAX(api_response_ts) AS last_api_response_ts,
+          MAX(silver_arrival_ts) AS last_silver_arrival_ts,
           CURRENT_TIMESTAMP AS gold_arrival_ts
         FROM TABLE(
           TUMBLE(TABLE silver_stream_wm, DESCRIPTOR(event_time), INTERVAL '5' MINUTES)

@@ -111,3 +111,81 @@ def send_compaction_report(**context: Any) -> None:
         log.info("Compaction report sent.")
     except Exception as exc:  # noqa: BLE001
         log.error("Compaction report send failed: %s", exc)
+
+
+def send_slo_alert(**context: Any) -> None:
+    """Day 10 PR α — `slo_daily_report` DAG 의 `branch=send_alert` 분기 callable.
+
+    XCom 의 `collect_slo_metrics` task return_value pull → 두 종 SLO 메트릭 parse
+    → Discord 메시지 build (어느 SLO 가 위반인지 명시) → webhook 발신. env 빈 값
+    시 stdout fallback (no exception).
+
+    BashOperator stdout JSON string + PythonOperator return dict 둘 다 처리
+    (Day 9 PR γ commit 4 backward compat 패턴 SoT).
+    """
+    ti = context["task_instance"]
+    raw = ti.xcom_pull(task_ids="collect_slo_metrics")
+    if not raw:
+        log.warning("XCom 미존재 — collect_slo_metrics 결과 없음")
+        return
+    try:
+        report = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError) as exc:
+        log.error("SLO XCom payload parse 실패: %s", exc)
+        return
+
+    msg = build_slo_alert_message(report)
+
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook:
+        log.warning("DISCORD_WEBHOOK_URL 미설정 — stdout fallback. msg: %s", msg)
+        return
+
+    payload = json.dumps({"content": msg}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)  # noqa: S310 (env-set webhook)
+        log.info("SLO alert sent.")
+    except Exception as exc:  # noqa: BLE001
+        log.error("SLO alert send failed: %s", exc)
+
+
+def build_slo_alert_message(report: dict[str, Any]) -> str:
+    """SLOReport dict → Discord 메시지 (어느 SLO 가 위반인지 명시).
+
+    pure 함수 (network 무관) — `send_slo_alert` 의 message builder 분리. Test 는
+    본 함수의 결과를 직접 검증.
+    """
+    df = report.get("data_freshness", {})
+    pl = report.get("platform_latency", {})
+
+    violated: list[str] = []
+    if df.get("slo_violated"):
+        violated.append(
+            f"data_freshness (p95={df.get('p95_seconds')}s > {df.get('threshold_seconds')}s)"
+        )
+    if pl.get("slo_violated"):
+        violated.append(
+            f"platform_latency (p95={pl.get('p95_seconds')}s > {pl.get('threshold_seconds')}s)"
+        )
+
+    header = (
+        "[VIOLATION] SLO violated: " + ", ".join(violated)
+        if violated
+        else "[OK] SLO daily check"
+    )
+    body = (
+        f"\n**Data Freshness** (API tm → Gold): "
+        f"count={df.get('count')}, p50={df.get('p50_seconds')}s, "
+        f"p95={df.get('p95_seconds')}s (threshold {df.get('threshold_seconds')}s), "
+        f"p99={df.get('p99_seconds')}s"
+        f"\n**Platform Latency** (Silver → Gold): "
+        f"count={pl.get('count')}, p50={pl.get('p50_seconds')}s, "
+        f"p95={pl.get('p95_seconds')}s (threshold {pl.get('threshold_seconds')}s), "
+        f"p99={pl.get('p99_seconds')}s"
+    )
+    return header + body

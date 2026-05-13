@@ -236,9 +236,28 @@
 
 ### 6-2. 데이터 신선도 SLO 정의
 
-- **정의**: 공공 도시데이터 API 응답 `tm` 시각 → Iceberg Gold 테이블 도달까지의 wall-clock 시간
-- **목표**: P95 < 7분 (1번의 15분 대비 50%+ 개선)
-- **측정 방식**: producer 가 Kafka 메시지에 `api_response_ts` 헤더 첨부 → Flink Gold sink 가 `gold_arrival_ts` 기록 → 두 값 차이의 분포를 자체 Python 스크립트로 일일 리포트
+본 SLO 는 **두 종으로 분리** 측정·보고한다. 단일 정의 (`gold_arrival_ts - api_response_ts`) 로는 source 측 lag (서울 OpenAPI 의 `tm` 응답값이 호출 시각보다 30분+ 옛날) 와 우리 플랫폼 측 latency 가 섞여 플랫폼 성능 추적 불가능. Day 10 PR α 시점 24h SLO 실측 (count=846, p50=42분, p95=3.3시간, 모든 percentile 거의 동일) 으로 source 한계 확인 → 분리 재설계.
+
+#### (α) Data Freshness SLO — 사용자 관점 데이터 나이
+
+- **정의**: 공공 도시데이터 API 응답 `tm` 시각 → Iceberg Gold 테이블 도달 (`gold_arrival_ts`) wall-clock 시간
+- **목표**: **P95 < 45분** (서울 OpenAPI 의 31분+ source lag + Flink 5분 tumbling window 한도 포함)
+- **한계 명시**: source 측 (서울시 데이터 갱신 주기) 한도를 우리가 통제 불가능. 위반 시 source rate 변경 가능성을 우선 점검.
+
+#### (β) Platform Latency SLO — 우리 플랫폼 통제 구간
+
+- **정의**: Silver Iceberg 적재 시각 (`silver_arrival_ts`, bronze→silver Flink job 의 `CURRENT_TIMESTAMP`) → Iceberg Gold 테이블 도달 (`gold_arrival_ts`) wall-clock 시간
+- **목표**: **P95 < 7분** (1번 micro-batch 15분 대비 50%+ 개선. silver→gold 의 5min tumbling window + Iceberg commit lag 모두 포함)
+- **한계 명시**: bronze→silver 의 lag (Kafka broker → silver 적재) 는 본 SLO 에 미포함. silver Iceberg catalog 에 `kafka_ts` 컬럼 부재 (Day 10 PR α 시점 발견 — Path B 결정 SoT, deferred-items-post-day10 memory 참조) 가 원인. Phase 1B/2 의 silver schema 정정 (`kafka_ts` ADD COLUMN + bronze_to_silver.py 의 INSERT 정정) 시점에 full coverage 로 확장 가능.
+
+#### 측정 방식
+
+- Producer 가 Kafka 메시지에 `api_response_ts` 헤더 첨부 (= API `tm` 그대로)
+- Bronze→silver Flink job 의 INSERT 가 silver 의 `silver_arrival_ts = CURRENT_TIMESTAMP` 채움 (silver Iceberg 적재 시각)
+- silver→gold 5분 tumbling window 가 `MAX(api_response_ts) AS last_api_response_ts` + `MAX(silver_arrival_ts) AS last_silver_arrival_ts` 로 gold 에 기록
+- Flink Gold sink 가 `gold_arrival_ts = CURRENT_TIMESTAMP` 기록
+- 자체 Python 스크립트 (`src/flink_jobs/slo_metrics.py`) + Airflow `slo_daily_report` DAG 가 두 SLO 의 percentile 분포를 일일 리포트
+- 위반 시 Discord webhook alert (어느 SLO 가 위반인지 메시지에 명시)
 
 ### 6-3. Phase 1A 단독 포트폴리오 (6~7p)
 

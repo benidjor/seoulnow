@@ -1,25 +1,26 @@
-"""Day 4 Task 4.2 — 데이터 신선도 SLO 측정 (P95 < 7분).
+"""Day 4 Task 4.2 + Day 10 PR α — 두 종 SLO 측정.
 
-서울 OpenAPI 응답 `tm` (= producer 가 attach 한 `api_response_ts`) 부터
-Iceberg Gold 도달 (`gold_arrival_ts`, `silver_to_gold.py` 의
-`CURRENT_TIMESTAMP`) 까지의 지연 분포를 계산. spec §6-2 가 단일 출처.
+Day 10 PR α 정정 (spec §6-2 SoT):
+
+- **(α) Data Freshness SLO** = `gold_arrival_ts - api_response_ts(tm)` P95 < 45m
+  (서울 OpenAPI source lag 포함, 사용자 관점 데이터 나이)
+- **(β) Platform Latency SLO** = `gold_arrival_ts - silver_arrival_ts` P95 < 7m
+  (silver→gold 우리 통제 구간, 1번 micro-batch 15분 대비 50%+ 개선). Path B 결정 —
+  silver Iceberg catalog 의 `kafka_ts` 부재로 bronze→silver lag 미포함 (Phase 1B/2
+  의 silver schema 정정 시점에 full coverage 가능).
 
 본 모듈은 두 영역으로 분리된다.
 
-- 순수 함수: `compute_freshness_seconds`, `summarize`, `_percentile`.
-  Iceberg / pyiceberg 의존이 없어서 단위 테스트가 빠르고 결정적.
-- 실 데이터 fetch: `fetch_samples_from_gold`. pyiceberg + DuckDB 우회.
-  plan(L2476~L2502) 원본 (DuckDB `iceberg_scan(s3://...)`) 이 두 가지로
-  동작 안 함 — (1) Lakekeeper 가 vend 하는 UUID-prefix path 를 iceberg_scan
-  이 resolve 못함 (Task 4.1 verification 에서 확인), (2) pyiceberg
-  `t.scan().to_arrow()` 도 pyarrow 11 (PyFlink 1.20 transitive) 의
-  `concat_tables(promote_options=...)` 미지원으로 fail. 회피 — pyiceberg
-  `plan_files()` 로 실제 parquet path 받아 DuckDB `read_parquet
-  (hive_partitioning=true)` 로 직접 read. 상세는 함수 docstring 참조.
+- 순수 함수: `compute_freshness_seconds` / `compute_platform_latency_seconds` /
+  `summarize_one` / `summarize_dual` / `_percentile`. pyiceberg / DuckDB 의존이
+  없어서 단위 테스트가 빠르고 결정적.
+- 실 데이터 fetch: `fetch_dual_samples_from_gold`. pyiceberg + DuckDB 우회
+  (`lib.duckdb_iceberg` 위임). 회피 배경 (DuckDB iceberg_scan UUID prefix +
+  pyarrow 11 concat_tables) 은 해당 lib docstring.
 
 Run:
-  JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \\
-    uv run --extra flink python -m flink_jobs.slo_metrics
+    JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home \\
+        uv run --extra flink python -m flink_jobs.slo_metrics
 """
 from __future__ import annotations
 
@@ -32,14 +33,19 @@ from datetime import UTC, datetime, timedelta
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-#: SLO 임계값 (P95 < 7분, spec §6-2).
-SLO_P95_SECONDS = 7 * 60
+#: (α) Data Freshness SLO 임계값 — API tm → Gold P95 < 45분 (spec §6-2).
+SLO_DATA_FRESHNESS_SECONDS = 45 * 60
+
+#: (β) Platform Latency SLO 임계값 — silver_arrival_ts → Gold P95 < 7분 (spec §6-2, Path B).
+SLO_PLATFORM_LATENCY_SECONDS = 7 * 60
 
 
 @dataclass
-class FreshnessReport:
-    """SLO 리포트 1회 측정 스냅샷."""
+class MetricSummary:
+    """단일 SLO 의 분포 + 위반 여부."""
 
+    name: str
+    threshold_seconds: int
     count: int
     p50_seconds: int
     p95_seconds: int
@@ -48,12 +54,39 @@ class FreshnessReport:
     slo_violated: bool
 
 
+@dataclass
+class SLOReport:
+    """두 종 SLO 의 합 (data freshness + platform latency)."""
+
+    data_freshness: MetricSummary
+    platform_latency: MetricSummary
+
+    @property
+    def any_violated(self) -> bool:
+        """둘 중 하나라도 위반이면 True. branch_on_slo_violation 분기 키."""
+        return self.data_freshness.slo_violated or self.platform_latency.slo_violated
+
+
 def compute_freshness_seconds(api_ts: datetime, gold_ts: datetime) -> int:
-    """`gold_arrival_ts - api_response_ts` 를 초 단위 정수로 반환.
+    """`gold_arrival_ts - api_response_ts(tm)` 를 초 단위 정수로 반환.
 
     음수 (clock skew / out-of-order) 는 0 으로 clamp.
     """
     delta = (gold_ts - api_ts).total_seconds()
+    return max(0, int(delta))
+
+
+def compute_platform_latency_seconds(source_ts: datetime, gold_ts: datetime) -> int:
+    """`gold_arrival_ts - source_ts` 를 초 단위 정수로 반환.
+
+    Path B 결정: 현재 `source_ts` = `silver_arrival_ts` (silver Iceberg 적재 시각,
+    bronze→silver Flink job 의 `CURRENT_TIMESTAMP`). Phase 1B/2 의 silver schema
+    정정 (kafka_ts ADD COLUMN) 시점에 `source_ts` = `kafka_ts METADATA` 로 확장 가능
+    (signature 그대로 reuse).
+
+    음수 (clock skew) 는 0 clamp.
+    """
+    delta = (gold_ts - source_ts).total_seconds()
     return max(0, int(delta))
 
 
@@ -76,10 +109,16 @@ def _percentile(sorted_samples: Sequence[int], p: float) -> int:
     return int(round(val))
 
 
-def summarize(samples: Sequence[int]) -> FreshnessReport:
-    """Sample list → FreshnessReport. 빈 입력은 모두 0 / not violated."""
+def summarize_one(
+    name: str,
+    samples: Sequence[int],
+    threshold_seconds: int,
+) -> MetricSummary:
+    """Sample list → MetricSummary. 빈 입력은 모두 0 / not violated."""
     if not samples:
-        return FreshnessReport(
+        return MetricSummary(
+            name=name,
+            threshold_seconds=threshold_seconds,
             count=0,
             p50_seconds=0,
             p95_seconds=0,
@@ -88,28 +127,44 @@ def summarize(samples: Sequence[int]) -> FreshnessReport:
             slo_violated=False,
         )
     s = sorted(samples)
-    p50 = _percentile(s, 0.50)
     p95 = _percentile(s, 0.95)
-    p99 = _percentile(s, 0.99)
-    return FreshnessReport(
+    return MetricSummary(
+        name=name,
+        threshold_seconds=threshold_seconds,
         count=len(s),
-        p50_seconds=p50,
+        p50_seconds=_percentile(s, 0.50),
         p95_seconds=p95,
-        p99_seconds=p99,
+        p99_seconds=_percentile(s, 0.99),
         max_seconds=int(s[-1]),
-        slo_violated=p95 > SLO_P95_SECONDS,
+        slo_violated=p95 > threshold_seconds,
     )
 
 
-def fetch_samples_from_gold() -> list[int]:
-    """`gold.fact_hotspot_congestion_5min` 최근 24시간 row 의 freshness sec 리스트.
+def summarize_dual(
+    freshness_samples: Sequence[int],
+    latency_samples: Sequence[int],
+) -> SLOReport:
+    """두 종 sample → SLOReport. 각각 독립 summarize."""
+    return SLOReport(
+        data_freshness=summarize_one(
+            "data_freshness", freshness_samples, SLO_DATA_FRESHNESS_SECONDS
+        ),
+        platform_latency=summarize_one(
+            "platform_latency", latency_samples, SLO_PLATFORM_LATENCY_SECONDS
+        ),
+    )
 
-    catalog 생성 / parquet path 조회 / DuckDB SECRET 설정의 3 단계는
-    `flink_jobs.lib.duckdb_iceberg` 가 담당. 회피 배경 (DuckDB
-    `iceberg_scan` 의 UUID-prefix path 미해결 + pyarrow 11
-    `concat_tables(promote_options=...)` 미지원) 은 lib 모듈 docstring.
+
+def fetch_dual_samples_from_gold() -> tuple[list[int], list[int]]:
+    """`gold.fact_hotspot_congestion_5min` 최근 24h row 의 두 종 lag list.
+
+    - freshness = `gold_arrival_ts - last_api_response_ts` (= API tm)
+    - platform_latency = `gold_arrival_ts - last_silver_arrival_ts` (= Kafka broker ts)
+
+    `last_silver_arrival_ts` 가 NULL 인 row (Day 10 PR α schema migration 이전 적재) 는
+    platform_latency 측정에서 제외 (`IS NOT NULL` filter). freshness 는
+    동일 row 도 측정 가능 (`last_api_response_ts` 는 Day 4 부터 존재).
     """
-    # Lazy import — duckdb / pyiceberg 는 dev/flink extra 에서만 보장.
     from contextlib import closing
 
     import duckdb
@@ -123,34 +178,68 @@ def fetch_samples_from_gold() -> list[int]:
     catalog = build_catalog()
     file_paths = table_paths(catalog, "gold.fact_hotspot_congestion_5min")
     if not file_paths:
-        return []
+        return [], []
 
     cutoff = (datetime.now(UTC) - timedelta(hours=24)).replace(tzinfo=None)
     with closing(duckdb.connect()) as con:
         configure_duckdb(con)
-        rows = con.execute(
+        # `union_by_name = true` — Iceberg ALTER ADD COLUMN (Day 10 PR α 의
+        # `last_silver_arrival_ts`) 직후 backward read 호환. 일부 parquet 에만 새
+        # 컬럼이 있고 다른 parquet 에는 없는 상황 = DuckDB 가 union schema
+        # 생성 + missing 컬럼 NULL 채움.
+        freshness_rows = con.execute(
             """
             SELECT date_diff('second', last_api_response_ts, gold_arrival_ts) AS sec
-            FROM read_parquet(?, hive_partitioning = true)
+            FROM read_parquet(?, hive_partitioning = true, union_by_name = true)
             WHERE last_api_response_ts IS NOT NULL
               AND gold_arrival_ts IS NOT NULL
               AND gold_arrival_ts >= ?
             """,
             [file_paths, cutoff],
         ).fetchall()
-    return [max(0, int(r[0])) for r in rows if r[0] is not None]
+        try:
+            latency_rows = con.execute(
+                """
+                SELECT date_diff('second', last_silver_arrival_ts, gold_arrival_ts) AS sec
+                FROM read_parquet(?, hive_partitioning = true, union_by_name = true)
+                WHERE last_silver_arrival_ts IS NOT NULL
+                  AND gold_arrival_ts IS NOT NULL
+                  AND gold_arrival_ts >= ?
+                """,
+                [file_paths, cutoff],
+            ).fetchall()
+        except duckdb.BinderException:
+            # `last_silver_arrival_ts` 가 어느 parquet 에도 아직 없음 (Day 10 PR α
+            # migration 직후, silver→gold sink 의 첫 5min tumbling flush 전).
+            # graceful degrade — 새 parquet 적재 후 자동 복구.
+            log.info(
+                "last_silver_arrival_ts not yet in any parquet file — platform_latency samples=[]"
+            )
+            latency_rows = []
+    freshness = [max(0, int(r[0])) for r in freshness_rows if r[0] is not None]
+    latency = [max(0, int(r[0])) for r in latency_rows if r[0] is not None]
+    return freshness, latency
+
+
+def _print_summary(s: MetricSummary) -> None:
+    print(f"== {s.name} ==")
+    print(f"count          : {s.count}")
+    print(f"p50 seconds    : {s.p50_seconds}")
+    print(f"p95 seconds    : {s.p95_seconds}  (threshold: {s.threshold_seconds})")
+    print(f"p99 seconds    : {s.p99_seconds}")
+    print(f"max seconds    : {s.max_seconds}")
+    print(f"SLO violated   : {s.slo_violated}")
 
 
 def main() -> None:
-    samples = fetch_samples_from_gold()
-    rep = summarize(samples)
-    print("== Freshness SLO Report ==")
-    print(f"count          : {rep.count}")
-    print(f"p50 seconds    : {rep.p50_seconds}")
-    print(f"p95 seconds    : {rep.p95_seconds}  (SLO threshold: {SLO_P95_SECONDS})")
-    print(f"p99 seconds    : {rep.p99_seconds}")
-    print(f"max seconds    : {rep.max_seconds}")
-    print(f"SLO violated   : {rep.slo_violated}")
+    freshness, latency = fetch_dual_samples_from_gold()
+    report = summarize_dual(freshness, latency)
+    _print_summary(report.data_freshness)
+    print()
+    _print_summary(report.platform_latency)
+    print()
+    print("== Overall ==")
+    print(f"any_violated   : {report.any_violated}")
 
 
 if __name__ == "__main__":

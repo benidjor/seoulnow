@@ -2507,9 +2507,38 @@ git commit -m "feat: iceberg compaction + cost report (1번 closure 증거)"
 
 ## Day 10 — 아키텍처 다이어그램 + README + 포트폴리오 1차 작성 + `slo_daily_report` DAG
 
-**Day 10 목표 (spec §6-1, §5-8):** 모든 산출물을 정리해 **Phase 1A 단독 6~7페이지 포트폴리오** 1차 제출본을 작성 (Airflow 본진 4 DAG 페이지 포함). spec §6-3 의 7개 페이지 구조를 따른다. 추가로 **`slo_daily_report` DAG** (BranchPythonOperator) 를 작성해 spec §5-8 표 4행을 채우고 본진 4 DAG 라인업을 완성. **체크포인트 1 = 본 plan 의 종료점**.
+**Day 10 목표 (spec §6-1, §6-2 정정, §5-8):** 모든 산출물을 정리해 **Phase 1A 단독 6~7페이지 포트폴리오** 1차 제출본을 작성 (Airflow 본진 4 DAG 페이지 포함). spec §6-3 의 7개 페이지 구조를 따른다. 추가로 **(α) SLO 정의 두 종 분리 정정** (data freshness + platform latency, spec §6-2 단일 출처) + **(β) `slo_daily_report` DAG** (BranchPythonOperator) 를 작성해 spec §5-8 표 4행을 채우고 본진 4 DAG 라인업을 완성. **체크포인트 1 = 본 plan 의 종료점**.
 
-**Task 작업 순서 정당화:** 10.1 다이어그램 → 10.2 포트폴리오 → 10.3 README → 10.4 `slo_daily_report` DAG. **DAG 를 마지막에 배치한 사유**: 다음 날 09:00 KST 자동 실행으로 Day 10 종료 시점에 매뉴얼 trigger 1회만 검증하면 충분 (실 데이터 P95 산출은 다음 날 자연 진행). 포트폴리오/README 안의 SLO 숫자는 Day 4 의 `flink_jobs.slo_metrics` 출력 + Day 10 `slo_daily_report` DAG 1회 trigger 결과를 함께 사용.
+**Task 작업 순서 정당화:** 10.0 SLO 정의 정정 → 10.3 `slo_daily_report` DAG (두 종 SLO 측정) → 10.1 다이어그램 → 10.2 포트폴리오 → 10.4 README + 최종 게이트. **순서 사유**: 10.0+10.3 (PR α) 의 SLO 분리 결정이 10.2 포트폴리오 p4 (SLO 페이지) 본문 + 10.4 README 의 SLO 라인 수치에 직접 영향 → 코드/DAG 완성 후 docs 작성이 drift 없음. 10.3 의 manual trigger 1회로 두 종 SLO 의 첫 측정값 산출 → 포트폴리오에 그대로 인용.
+
+**PR 분할 (200 LOC 임계 + 단일 책임 SoT):**
+- **PR α** = Task 10.0 + Task 10.3 ≈ 400 LOC (SLO 정의 정정 + `slo_daily_report` DAG)
+- **PR β** = Task 10.1 + Task 10.2 ≈ 500 LOC docs (다이어그램 + 포트폴리오 v1)
+- **PR γ** = Task 10.4 ≈ 200 LOC (README + 최종 게이트 + `phase-1a-v1` tag)
+
+### Task 10.0: SLO 정의 두 종 분리 정정 (PR α)
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-04-30-seoul-citydata-platform-phase1-design.md` §6-2 (data freshness + platform latency 분리 정의)
+- Modify: `src/flink_jobs/slo_metrics.py` (두 종 SLO 측정 함수 + `SLOReport` dataclass)
+- Modify: `src/flink_jobs/silver_to_gold.py` (silver_stream_wm + INSERT SELECT 에 `silver_arrival_ts` propagation + gold CREATE TABLE 에 `last_silver_arrival_ts` 컬럼, Path B SoT)
+- Create: `scripts/migrate_gold_add_kafka_ts.py` (pyiceberg `update_schema().add_column()`, 1회 실행 멱등)
+- Modify: `tests/unit/flink_jobs/test_slo_metrics.py` (회귀 0 + 두 종 SLO 측정 단위 테스트 추가)
+
+**근거:** Day 10 PR α 시점 (2026-05-13) 24h SLO 실측 (count=846, p50=42분, p95=3.3시간, 모든 percentile 거의 동일 = source lag 일관 패턴) 으로 spec §6-2 의 단일 SLO 정의가 source lag (서울 OpenAPI 의 `tm` 응답값이 호출 시각보다 31분+ 옛날, 사전 점검 silver sample 의 `eventtime` vs `ingest_ts` 31.5분 차이로 확인) 와 우리 플랫폼 latency 를 분리 추적 불가능함을 확인. 1h 윈도우 재측정도 동일 패턴 (count=231 / p50=p95=p99=max≈2525s) → Day 9 batch 일시 영향 배제, source 측 일관 lag. 분리 재설계:
+
+- **(α) Data Freshness SLO** = `gold_arrival_ts - api_response_ts(tm)` **P95 < 45분** (source lag 포함, 사용자 관점 데이터 나이)
+- **(β) Platform Latency SLO** = `gold_arrival_ts - silver_arrival_ts` **P95 < 7분** (silver→gold 우리 통제 구간, 1번 micro-batch 15분 대비 50%+ 개선). **Path B 결정 SoT**: 작업 도중 silver Iceberg catalog 에 `kafka_ts` 컬럼 부재 발견 → bronze→silver lag 미포함으로 한계 명시. Phase 1B/2 에 full coverage 확장 가능.
+
+**검증 명령:**
+- `pytest tests/unit/test_slo_metrics.py -v` → 회귀 0 + 새 함수 PASS (host venv 13 PASS, path 실제 = `tests/unit/test_slo_metrics.py`)
+- `uv run --extra flink python -m flink_jobs.slo_metrics` → 두 종 SLO 모두 보고
+- `uv run --extra flink python scripts/migrate_gold_add_kafka_ts.py` → "Replaced: last_kafka_ts → last_silver_arrival_ts" 또는 idempotent "already exists"
+- silver→gold streaming 재기동 후 새 row 의 `last_silver_arrival_ts IS NOT NULL` 확인 (DuckDB count)
+
+> Day 10 종료 시점 plan-update commit 으로 Day 9 잔여 13 deviation + 본 Task 10.0 의 spec §6-2 정정도 함께 기록한다.
+
+---
 
 ### Task 10.1: 아키텍처 다이어그램 + 데이터 lineage (mermaid)
 
@@ -2842,62 +2871,63 @@ git commit -m "docs: phase1a v1 portfolio (5~6p, day 10 checkpoint)"
 
 ---
 
-### Task 10.3: `slo_daily_report` DAG — BranchPythonOperator (Airflow 본진 4 DAG 라인업 완성)
+### Task 10.3: `slo_daily_report` DAG — BranchPythonOperator + 두 종 SLO (PR α, Airflow 본진 4 DAG 라인업 완성)
 
 **Files:**
 - Create: `airflow/dags/slo_daily_report.py`
-- Create: `airflow/dags/common/slo_query.py` — DuckDB 로 Iceberg `gold.fact_hotspot_congestion_5min` 의 freshness 메트릭 집계 (`api_response_ts` → `gold_arrival_ts` 차이의 percentile_cont)
-- Create: `tests/unit/airflow/test_slo_daily_report_dag.py` — DAG 파싱 / branch 분기 동작 / XCom 흐름 검증
-- Modify: `airflow/dags/common/callbacks.py` — `send_slo_alert(p95_seconds, threshold_seconds, report_url)` Discord webhook helper 추가
+- Create: `airflow/dags/common/slo_query.py` — DuckDB 로 Iceberg `gold.fact_hotspot_congestion_5min` 의 두 종 SLO 메트릭 집계 (data freshness + platform latency, percentile_cont)
+- Create: `tests/unit/airflow/test_slo_daily_report_dag.py` — DAG 파싱 / branch 분기 (data freshness 위반 / platform latency 위반 / 둘 다 OK) / XCom 흐름 / payload 검증 (6 case)
+- Modify: `airflow/dags/common/callbacks.py` — `send_slo_alert(report)` Discord webhook helper. report = 두 종 메트릭 포함
 - (Phase 2 대비) Iceberg 테이블 `archive.fact_slo_daily` DDL 메모만 작성, 본격 적재는 Phase 2
 
-**Goal:** `airflow dags trigger slo_daily_report` 으로 어제 하루의 데이터 신선도 P95 측정 → P95 > 7분(420s) 이면 `send_slo_alert` 분기, 아니면 `skip_alert` 분기. 정상 일자엔 noise 0. 다음 날 09:00 KST 자동 실행 확인.
+**Goal:** `airflow dags trigger slo_daily_report` 으로 어제 하루의 두 종 SLO P95 측정 → `data_freshness_p95 > 45m OR platform_latency_p95 > 7m` 이면 `send_slo_alert` 분기 (어느 SLO 가 위반인지 메시지에 명시), 둘 다 SLO 안 위반이면 `skip_alert`. 정상 일자엔 noise 0. 다음 날 09:00 KST 자동 실행 확인.
 
 **본진 기능 발휘 (spec §5-8 표 4행):**
-- **BranchPythonOperator**: `branch_on_slo_violation` 이 XCom 의 `p95_seconds` 를 읽어 `"send_alert"` 또는 `"skip_alert"` task_id 반환 → Airflow 가 자동으로 한쪽만 실행
-- **XCom 흐름**: `collect_freshness_metrics` (push: `{p50, p95, p99, samples}`) → `generate_report` (pull → Jinja template → markdown) → `branch_on_slo_violation` (pull → 분기) → `send_alert` (pull → Discord 메시지에 메트릭 포함)
+- **BranchPythonOperator**: `branch_on_slo_violation` 이 XCom 의 두 종 P95 를 읽어 `"send_alert"` 또는 `"skip_alert"` task_id 반환 → Airflow 가 자동으로 한쪽만 실행
+- **XCom 흐름**: `collect_slo_metrics` (push: `{data_freshness: {p50, p95, p99, count}, platform_latency: {p50, p95, p99, count}}`) → `generate_report` (pull → Jinja template → markdown) → `branch_on_slo_violation` (pull → 둘 중 하나라도 위반이면 분기) → `send_alert` (pull → Discord 메시지에 두 종 메트릭 + 위반 SLO 명시)
 - **on_failure_callback**: 리포트 생성 자체 실패도 Discord alert (silent failure 방지)
 - **시계열 archive**: `fact_slo_daily` 테이블이 그 자체로 SLO 추세 데이터셋 (Phase 2 에서 Superset 대시보드 source)
+- **dbt-venv subprocess (Day 9 PR γ Option B 패턴 reuse)**: DuckDB + pyiceberg 호출이 Airflow base image 의 venv 격리 회피
 - schedule: `"0 9 * * *"` (매일 09:00 KST, 어제 하루 집계)
 
-**Task 그래프 (spec §5-8 의 시각화 그대로):**
+**Task 그래프:**
 ```
-collect_freshness_metrics      (DuckDB query → XCom push: {p50, p95, p99, samples})
+collect_slo_metrics            (DuckDB query → XCom push: {data_freshness: {...}, platform_latency: {...}})
 └─ generate_report             (Jinja template → markdown 파일)
-   └─ branch_on_slo_violation  ← ★ BranchPythonOperator
-      ├─ if p95 > 420s: → send_alert  (Discord webhook + 메트릭 + 어제 그래프 링크)
-      └─ else:           → skip_alert (DummyOperator)
+   └─ branch_on_slo_violation  ← ★ BranchPythonOperator (OR 조건)
+      ├─ if data_freshness_p95 > 2700s OR platform_latency_p95 > 420s: → send_alert
+      └─ else:                                                       → skip_alert (EmptyOperator)
 └─ archive_report              (Phase 2: fact_slo_daily 적재. Phase 1A 는 markdown 파일만 보관)
 ```
 
-**TDD 단계 (pure DAG 파싱 + branch 분기 검증):**
+**TDD 단계 (pure DAG 파싱 + branch 분기 검증, 6 case):**
 - Step 1: 실패 테스트 작성
   - `test_dag_loads()` — DAG 파싱 OK
-  - `test_branch_returns_send_alert_when_p95_above_threshold()` — XCom mock 으로 p95=500 → `"send_alert"` 반환
-  - `test_branch_returns_skip_alert_when_p95_below_threshold()` — p95=300 → `"skip_alert"` 반환
-  - `test_xcom_keys_consistent()` — `collect_freshness_metrics` 의 push key 가 `branch_on_slo_violation` 의 pull key 와 일치
+  - `test_branch_send_alert_when_data_freshness_violated()` — data_freshness_p95=3000, platform_latency_p95=200 → `"send_alert"` 반환
+  - `test_branch_send_alert_when_platform_latency_violated()` — data_freshness_p95=2000, platform_latency_p95=500 → `"send_alert"` 반환
+  - `test_branch_skip_alert_when_both_within_slo()` — data_freshness_p95=2000, platform_latency_p95=300 → `"skip_alert"` 반환
+  - `test_xcom_keys_consistent()` — `collect_slo_metrics` 의 push key 가 `branch_on_slo_violation` 의 pull key 와 일치
+  - `test_send_alert_payload_includes_both_metrics()` — Discord webhook payload 에 두 종 메트릭 모두 포함 + 위반 SLO 명시
 - Step 2: 테스트 fail 확인 (pytest)
 - Step 3: DAG 본문 + `slo_query.py` + `callbacks.send_slo_alert` 작성 (위 본진 기능 모두 발휘)
-- Step 4: 테스트 PASS 확인 (`pytest tests/unit/airflow/test_slo_daily_report_dag.py -v`)
-- Step 5: Airflow UI 에서 DAG 보임 + manual trigger 1회 실행 (실 데이터 P95 산출). p95 < 420 이면 `skip_alert` 분기, > 420 이면 `send_alert` 분기 동작 시각 확인 (Graph view 색상)
+- Step 4: 테스트 PASS 확인 (`pytest tests/unit/airflow/test_slo_daily_report_dag.py -v` → 6 PASS)
+- Step 5: Airflow UI 에서 DAG 보임 + manual trigger 1회 실행 (실 데이터 두 종 P95 산출). data freshness 또는 platform latency 위반이면 `send_alert` 분기, 둘 다 안 위반이면 `skip_alert` 분기 동작 시각 확인 (Graph view 색상)
 - Step 6: 다음 날 09:00 KST 자동 실행 확인 (Day 11 시작 시 first run 결과 점검 — Phase 1B Week 3 plan 시작 시점에 함께 확인)
-- Step 7: Commit
+- Step 7: Commit (Task 10.0 + Task 10.3 통합 PR α)
 
 **검증 명령:**
-- `pytest tests/unit/airflow/test_slo_daily_report_dag.py -v` → 4 PASS
+- `pytest tests/unit/airflow/test_slo_daily_report_dag.py -v` → 6 PASS
 - `airflow dags list | grep slo_daily_report` → 보임
 - `airflow dags test slo_daily_report $(date +%Y-%m-%d)` → end-to-end 1회 성공, branch 분기 동작 시각 확인
-- Airflow UI > Graph view 에서 한쪽 분기만 색칠된 것 확인 (P95 측정값에 따라 send_alert 또는 skip_alert)
-- Discord 채널 (또는 dry-run mode) 에서 메시지 수신 확인 (P95 위반 시에만)
+- Airflow UI > Graph view 에서 한쪽 분기만 색칠된 것 확인 (두 종 SLO 측정값에 따라 send_alert 또는 skip_alert)
+- Discord 채널 (또는 dry-run mode) 에서 메시지 수신 확인 (둘 중 하나라도 위반 시에만, 위반 SLO 명시)
 
 **spec §5-8 본진 4 DAG 라인업 완성 메모:**
 - ✅ Day 5 — `dbt_full_run` (TaskGroup + 의존성 + SLA + on_failure_callback)
-- ✅ Day 5~6 buffer — `backfill_silver_from_bronze` (Dynamic Task Mapping + 멱등 MERGE INTO)
-- ✅ Day 5~6 buffer 골격 → Day 9 본격 — `iceberg_maintenance` (병렬 Spark + XCom + on_success_callback)
-- ✅ **Day 10 = 본 task — `slo_daily_report` (BranchPythonOperator + XCom + on_failure_callback)**
+- ✅ Day 5-#6 buffer — `backfill_silver_from_bronze` (Dynamic Task Mapping + 멱등 MERGE INTO)
+- ✅ Day 5-#6 buffer 골격 → Day 9 본격 — `iceberg_maintenance` (병렬 Spark + XCom + on_success_callback)
+- ✅ **Day 10 = 본 task — `slo_daily_report` (BranchPythonOperator + 두 종 SLO + XCom + on_failure_callback)**
 - → spec §5-8 의 "본진 기능 12개 발휘" 라인업 완성. 면접 답변 (spec §8-2 "Airflow 또 쓰셨네요?") 의 4개 DAG 모두 작동.
-
-> **상세 implementation step (DuckDB freshness 쿼리 SQL, Jinja template 본문, BranchPythonOperator callable 함수, Discord webhook payload 형식) 은 Day 9 종료 시점 plan-update commit 으로 작성. `iceberg_maintenance` 본격 운영 결과 (실측 P95 분포) 가 첫 trigger 시 입력으로 사용됨.**
 
 ---
 
@@ -2918,7 +2948,7 @@ collect_freshness_metrics      (DuckDB query → XCom push: {p50, p95, p99, samp
 - 공개 데모: https://seoul-citydata.pages.dev
 - Phase 1A 포트폴리오 (6~7p, Airflow 페이지 포함): [`docs/portfolio/phase1a_v1.md`](./docs/portfolio/phase1a_v1.md)
 - 시스템 다이어그램: [`docs/architecture/system_diagram.md`](./docs/architecture/system_diagram.md)
-- 데이터 신선도 SLO: **p95 < 7분**
+- **두 종 SLO**: Data Freshness P95 < 45분 (서울 OpenAPI source lag 포함) / Platform Latency P95 < 7분 (Kafka → Iceberg, 우리 통제 구간)
 - 운영 비용: **월 $0~$0.83**
 - **Airflow 본진 4 DAG**: `dbt_full_run`, `iceberg_maintenance`, `backfill_silver_from_bronze`, `slo_daily_report` — streaming 은 Flink, batch ops 만 Airflow (3계층 분리)
 

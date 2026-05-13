@@ -32,11 +32,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.utils.task_group import TaskGroup
-
 from common.callbacks import send_discord_alert
+
+from airflow import DAG
 
 DBT_DIR = "/opt/airflow/dbt/seoul"
 DBT_BIN = "/opt/airflow/dbt-venv/bin/dbt"
