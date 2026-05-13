@@ -12,7 +12,9 @@
 
 ### 1-1. 한 줄 목표
 
-> 서울 공공 실시간 데이터 + Postgres CDC + 익명 사용자 행동 로그를 **Kafka 메시지 버스로 통합**하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions** 으로 처리·검증하는 플랫폼을 14일에 구축한다. 동시에 **익명 사용자가 실제 사용 가능한 작은 실서비스**(공개 도메인 + 동네 북마크 + Web Push 알림)를 같이 띄워, "1번 포트폴리오의 micro-batch / 시뮬레이션 데이터 / 미해결 이슈 / 도메인 편중" 약점을 한 번에 보강한다.
+> **서비스 의도** (CLAUDE.md §1 SoT, 2026-05-07/05-14 정정): 서울 활동 시 관심 지역의 실시간 혼잡도와 영업 중인 카페·술집(특히 마감까지 1시간 이상 남은 곳)을 확인·추천하는 작은 실서비스 + 그 서비스의 데이터 플랫폼. cafefinder 류 한국 유사 서비스의 attribution 없는 ToS 위반 패턴 대신 정공 path 로 차별화. 회원가입 / 북마크 / Web Push 알림 / 외부 가게 정보 (카카오/네이버 영업시간·별점) 는 Phase 1B (Day 11-18, 4일 → 8일 확장 결정 2026-05-14) 에 단계적 도입.
+>
+> **시스템 목표**: 서울 공공 실시간 데이터 + Postgres CDC + 익명 사용자 행동 로그 + 외부 가게 정보 (P1B Day 16) 를 **Kafka 메시지 버스로 통합**하고, **PyFlink streaming + Spark batch + Iceberg(Lakekeeper) + dbt + GitHub Actions** 으로 처리·검증하는 플랫폼을 Phase 1A 10일 + Phase 1B 8일 에 구축. 1번 포트폴리오의 "micro-batch / 시뮬레이션 데이터 / 미해결 이슈 / 도메인 편중" 약점 보강.
 
 ### 1-2. 성공 기준 (포트폴리오 약점 보강 매핑)
 
@@ -53,6 +55,7 @@
 
 | 영역 | 결정 |
 |---|---|
+| **서비스 컨셉** | **서울 관심 지역 실시간 혼잡도 + 영업 중인 카페·술집 추천** (CLAUDE.md §1 발화 의도 #1·#2 SoT). cafefinder 영감, 정공 path 차별화. P1A 단순 필터 → P1B (Day 11-18) 회원가입 + 외부 가게 정보 → P2 추천 점수 모델 |
 | 메시징 | **Kafka KRaft single-node** (Redpanda 아님, ZooKeeper 없음) |
 | 스트림 처리 | **PyFlink** 메인 |
 | 배치 처리 | **Spark batch** 보조 (Day 9 Iceberg MERGE INTO 멱등성 검증) |
@@ -217,6 +220,8 @@
 §8-2 표 참조 ("왜 Airflow 또 쓰나요?", "1번이랑 뭐가 다른가요?" 답변에 통합).
 
 ## 6. Phase 1A — Data Platform Core (Day 1~10)
+
+> **사용자 발화 의도 매핑** (CLAUDE.md §1 SoT): Phase 1A 는 발화 의도 #1 (관심 지역의 실시간 혼잡도) + #2 (영업 중인 카페·술집 마감 1h+) 의 단순 필터 단계 구현. #3 (cafefinder 정공 path) 은 Day 8 `chill_open_now` mart 단일 출처 영업시간으로 시작. #4 (3단계 진화) 의 1단계 완료. #5 (카카오/네이버 외부 정보) 는 Phase 1B Day 16 작업으로 미룸.
 
 ### 6-1. 일정
 
