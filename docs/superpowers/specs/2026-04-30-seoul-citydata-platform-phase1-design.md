@@ -274,7 +274,9 @@
 6. **Airflow 본진 4 DAG 운영** (DAG 의존성 / dynamic task mapping 백필 / BranchPythonOperator / 메모리 mitigation)
 7. 운영 비용 분석 + Phase 1B/2 로드맵
 
-## 7. Phase 1B — 익명 실서비스 통합 (Day 11~14)
+## 7. Phase 1B — 익명 실서비스 통합 + 회원 / 외부 정보 / Superset / Trino (Day 11~18)
+
+> 8일 확장 결정 (2026-05-14): Day 11~14 = 기존 익명 실서비스 흐름. Day 15 = 회원가입 (Phase 2 W1 → Phase 1B 당김). Day 16 = 카카오/네이버 외부 가게 정보 (Phase 2 W6 Google Places 대신). Day 17 = 혼잡도 분류 mart + Superset. Day 18 = Trino single-node + 강화 리포트 v2. 상세 task = `docs/superpowers/plans/phase-1b-week-3.md` SoT.
 
 ### 7-1. 일정
 
@@ -283,7 +285,11 @@
 | 11 | **익명 사용자 행동 producer** — 브라우저 → Cloudflare Pages Functions(Edge API) → HTTPS → Oracle Cloud의 HTTP receiver → Kafka `user.events.v1`. 익명 ID는 쿠키로 발급. | 행동 토픽 흐름 |
 | 12 | **D1 + 북마크** — D1에 `bookmarks(anon_id, region_id, created_at)` 테이블, Next.js 북마크 UI | 사용자 기능 1개 |
 | 13 | **Web Push 알림** — 서비스워커 + push subscription을 D1에 저장 + Workers Cron이 DuckDB로 Iceberg 쿼리 → "북마크된 동네가 한가해짐" 감지 시 푸시 발신 | 알림 동작 |
-| 14 | `user.events.v1` 을 PyFlink로 처리해 Iceberg `fact_user_event` 적재 + **포트폴리오 강화 버전 작성 (1A+1B, 8~10p)** | **체크포인트 2: 강화 버전 제출** |
+| 14 | `user.events.v1` 을 PyFlink로 처리해 Iceberg `fact_user_event` 적재 | `fact_user_event` 시간별 mart |
+| 15 | **회원가입 + Postgres `users`** (Phase 2 W1 → Phase 1B 당김). 익명 `anon_id` → 식별 `user_id` 전환. `user.events.v1` 의 `user_id` 채움 (forward compatibility 발휘). 로그인은 Phase 2. | `users` 테이블 + signup form + `place.users.cdc.v1` 토픽 |
+| 16 | **카카오 / 네이버 외부 가게 정보** (영업시간 + 별점). Google Places 대신 (한국 정확도 한계). `places_external` 테이블 + `chill_open_now` mart join. ToS risk 인지 + 채용 기대 낮음 입장 명시. | 외부 영업시간 + 별점 통합 |
+| 17 | **혼잡도 분류 dbt mart `congestion_grade_5min`** (0.5d, `여유` / `보통` / `약간 붐빔` / `붐빔`) + **Apache Superset 단일 노드** dashboard (0.5d, 자치구별 혼잡도 등급 heatmap + `chill_open_now` count) | 등급 mart + Superset dashboard |
+| 18 | **Trino single-node** (0.5d, Iceberg connector + dbt-trino profile) + **강화 리포트 v2 작성** (0.5d, Phase 1A v1 의 7p → Phase 1A+1B v2 의 12-14p) | **체크포인트 2: 강화 버전 제출 (12-14p)** |
 
 ### 7-2. Edge API → Kafka REST Proxy 패턴 (처음부터 채택)
 
@@ -316,13 +322,17 @@ Cloudflare Pages Functions / Workers는 TCP 직접 연결이 제한적이므로,
 - 정상 경로: 서비스워커 등록 + VAPID 키로 push subscription 생성 → D1 저장 → Workers Cron(5분 주기) → DuckDB로 Iceberg 쿼리 → "북마크된 동네 혼잡도가 임계값 미만 + 영업 중" 조건 충족 시 web-push 라이브러리로 발신
 - **Day 13 fallback**: Web Push 단계에서 막히면 **메인 지도에 "내 북마크 동네 현황" 위젯**을 띄워 한가해지면 화면에 배지 표시. 푸시는 Phase 2로 미룸.
 
-### 7-5. 1A+1B 통합 포트폴리오 (9~11p)
+### 7-5. 1A+1B 통합 포트폴리오 (12~14p)
 
-위 Phase 1A 7p + 다음 추가:
-8. 익명 실서비스 아키텍처 (Edge API + REST Proxy + D1 + Web Push)
-9. `user.events.v1` 처리 + 익명 ID 거버넌스
-10. Phase 1B 트러블슈팅 (Web Push / D1 / Edge API → Kafka 등)
-11. 본인 운영 실서비스 + 그 서비스의 데이터 플랫폼 통합 어필 + Phase 2 로드맵
+위 Phase 1A 7p (Day 11 이후 평시 SLO 결과 §4.5 보강 reuse) + 다음 추가:
+
+8. 익명 실서비스 아키텍처 (Edge API + REST Proxy + D1 + Web Push, Day 11~13)
+9. `user.events.v1` 처리 + 익명 ID 거버넌스 (Day 14 + `/privacy`)
+10. Phase 1B 트러블슈팅 (Web Push / D1 / Edge API → Kafka 등 Day 11~13 실측 이슈)
+11. 회원가입 단계적 진화 (Day 15 anon_id → user_id forward compatibility 발휘)
+12. 외부 가게 정보 도입 (카카오/네이버, Day 16) + ToS risk 입장
+13. 혼잡도 분류 mart + Superset 대시보드 (Day 17)
+14. Trino single-node + 운영 비용 갱신 (Day 18) + 본인 운영 실서비스 + 그 서비스의 데이터 플랫폼 통합 + Phase 2 로드맵
 
 ## 8. 차별화 서사 (면접 어필)
 
