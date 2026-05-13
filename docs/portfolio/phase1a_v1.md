@@ -12,7 +12,11 @@
 
 **서울 실시간 지역 혼잡도 데이터 플랫폼 — Phase 1A**
 
-서울시 공공 실시간 데이터 (도시데이터 + 지하철 도착정보) + Postgres CDC 를 **Kafka 메시지 버스** 로 통합. **PyFlink streaming + Spark batch (Day 9 보조) + Iceberg (Lakekeeper REST Catalog) + dbt + Airflow + GitHub Actions** 로 처리·검증.
+**의도**: 서울 활동 시 관심 지역의 실시간 혼잡도와 영업 중인 카페·술집 (특히 마감까지 1시간 이상 남은 곳) 을 확인·추천하는 작은 실서비스 + 그 서비스의 데이터 플랫폼. cafefinder 류 한국 유사 서비스의 attribution 없는 ToS 위반 패턴 대신 정공 path (공공 인허가 + 외부 정보 + 익명 행동 통합) 로 차별화.
+
+**시스템**: 서울시 공공 실시간 데이터 (도시데이터 + 지하철 도착정보) + Postgres CDC 를 **Kafka 메시지 버스** 로 통합. **PyFlink streaming + Spark batch (Day 9 보조) + Iceberg (Lakekeeper REST Catalog) + dbt + Airflow + GitHub Actions** 로 처리·검증.
+
+**3단계 기능 진화**: P1A 단순 필터 → P1B (Day 11-18, 4일 → 8일 확장 결정 2026-05-14) 회원가입 + 북마크 + 알림 + 외부 가게 정보 → P2 추천 점수 모델 (혼잡도 + 영업 + 별점 + 사용자 행동).
 
 ### 1.1. 핵심 결과 표
 
@@ -53,6 +57,8 @@
 ---
 
 ## p2. 아키텍처
+
+> **외부 reader 시점**: 본 시스템의 사용자는 서울 활동 중 카페·술집을 찾는 일반인. 그들이 보는 화면 1개 (`/chill`) + 본 데이터 플랫폼이 그 화면을 떠받침. 아키텍처의 모든 결정 — Kafka 토픽 / 5min tumbling window / SLO 분리 / Spark Compaction / Airflow 본진 4 DAG — 은 "5분 안 1회 화면 갱신 + 마감 1h+ 정확도 + 월 $0~2 운영" 제약에서 도출.
 
 상세 다이어그램은 `docs/architecture/data-flow.md` 참조. 핵심 흐름 요약:
 
