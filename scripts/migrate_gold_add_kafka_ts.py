@@ -1,7 +1,7 @@
 """Day 10 PR α — Iceberg `gold.fact_hotspot_congestion_5min` schema migration.
 
 silver→gold 의 Platform Latency SLO 측정을 위해 `last_silver_arrival_ts` 컬럼 추가.
-spec §6-2 정정 (두 종 SLO 분리) 의 source of truth.
+spec §6-2 정정 (두 가지 SLO 분리) 의 source of truth.
 
 **Path B 결정 (작업 도중 root cause 발견)**: silver Iceberg catalog 에 `kafka_ts`
 컬럼이 미존재 (bronze 의 Kafka metadata 가 bronze→silver INSERT 시 silver 의

@@ -116,7 +116,7 @@ def send_compaction_report(**context: Any) -> None:
 def send_slo_alert(**context: Any) -> None:
     """Day 10 PR α — `slo_daily_report` DAG 의 `branch=send_alert` 분기 callable.
 
-    XCom 의 `collect_slo_metrics` task return_value pull → 두 종 SLO 메트릭 parse
+    XCom 의 `collect_slo_metrics` task return_value pull → 두 가지 SLO 메트릭 parse
     → Discord 메시지 build (어느 SLO 가 위반인지 명시) → webhook 발신. env 빈 값
     시 stdout fallback (no exception).
 

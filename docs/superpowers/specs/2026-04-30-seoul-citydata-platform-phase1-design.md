@@ -236,7 +236,7 @@
 
 ### 6-2. 데이터 신선도 SLO 정의
 
-본 SLO 는 **두 종으로 분리** 측정·보고한다. 단일 정의 (`gold_arrival_ts - api_response_ts`) 로는 source 측 lag (서울 OpenAPI 의 `tm` 응답값이 호출 시각보다 30분+ 옛날) 와 우리 플랫폼 측 latency 가 섞여 플랫폼 성능 추적 불가능. Day 10 PR α 시점 24h SLO 실측 (count=846, p50=42분, p95=3.3시간, 모든 percentile 거의 동일) 으로 source 한계 확인 → 분리 재설계.
+본 SLO 는 **두 가지으로 분리** 측정·보고한다. 단일 정의 (`gold_arrival_ts - api_response_ts`) 로는 source 측 lag (서울 OpenAPI 의 `tm` 응답값이 호출 시각보다 30분+ 옛날) 와 우리 플랫폼 측 latency 가 섞여 플랫폼 성능 추적 불가능. Day 10 PR α 시점 24h SLO 실측 (count=846, p50=42분, p95=3.3시간, 모든 percentile 거의 동일) 으로 source 한계 확인 → 분리 재설계.
 
 #### (α) Data Freshness SLO — 사용자 관점 데이터 나이
 

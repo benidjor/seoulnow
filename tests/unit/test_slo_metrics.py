@@ -1,4 +1,4 @@
-"""Day 4 Task 4.2 + Day 10 PR α — 두 종 SLO 단위 테스트 (TDD).
+"""Day 4 Task 4.2 + Day 10 PR α — 두 가지 SLO 단위 테스트 (TDD).
 
 순수 함수만 다룬다:
 - `compute_freshness_seconds` / `compute_platform_latency_seconds` (Day 10 신규)
@@ -118,7 +118,7 @@ def test_summarize_dual_both_within_slo_any_violated_false() -> None:
 
 
 def test_summarize_dual_returns_slo_report_with_named_metrics() -> None:
-    """SLOReport 의 두 종 MetricSummary 가 spec §6-2 의 이름 + threshold 가짐."""
+    """SLOReport 의 두 가지 MetricSummary 가 spec §6-2 의 이름 + threshold 가짐."""
     report = summarize_dual([60], [60])
     assert isinstance(report, SLOReport)
     assert report.data_freshness.name == "data_freshness"

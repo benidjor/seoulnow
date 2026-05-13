@@ -1,6 +1,6 @@
 """slo_daily_report — Day 10 PR α (Airflow 본진 4 DAG 라인업 완성, 4번째).
 
-두 종 SLO 일일 리포트 + BranchPythonOperator + Discord 알림. spec §6-2 정정
+두 가지 SLO 일일 리포트 + BranchPythonOperator + Discord 알림. spec §6-2 정정
 (data freshness P95 < 45m / platform latency P95 < 7m) 의 운영 진입점.
 
 본진 기능 (spec §5-8 표 4행):
@@ -75,7 +75,7 @@ def branch_on_slo_violation(task_instance: Any = None, **_: Any) -> str:
 
 
 def generate_report(task_instance: Any = None, ds: str | None = None, **_: Any) -> str:
-    """XCom 의 두 종 SLO 메트릭 → markdown 파일 작성. 파일 path return.
+    """XCom 의 두 가지 SLO 메트릭 → markdown 파일 작성. 파일 path return.
 
     Phase 1A 한정 — markdown 만 보관. Phase 2 에서 `archive.fact_slo_daily`
     적재 (시계열 SLO 추세 데이터셋, Superset source).
@@ -121,7 +121,7 @@ default_args = {
 
 with DAG(
     dag_id="slo_daily_report",
-    description="두 종 SLO (data freshness + platform latency) 일일 리포트 + Discord 알림",
+    description="두 가지 SLO (data freshness + platform latency) 일일 리포트 + Discord 알림",
     start_date=datetime(2026, 5, 1),
     schedule="0 9 * * *",
     catchup=False,

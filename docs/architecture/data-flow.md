@@ -90,7 +90,7 @@ flowchart LR
 
   subgraph OBS["📊 관측 · CI"]
     FUI["Flink Web UI"]:::obs
-    SLO["Python SLO 스크립트<br/>신선도 P95 < 7분"]:::obs
+    SLO["Python SLO 스크립트<br/>두 가지 측정<br/>freshness 45m·latency 7m"]:::obs
     GHA["GitHub Actions<br/>PyFlink·dbt PR 검증"]:::obs
   end
 
@@ -105,7 +105,7 @@ flowchart LR
 - **streaming = Flink, polling = cron, batch ops = Airflow** 3계층 분리 (CLAUDE.md §3) 가 시각적으로 드러남.
 - Day 9 Spark batch 는 점선(`-. .->`)으로 일시 기동 + 보조 역할임을 표시.
 - `dim_place` 는 P1A 에서 SCD2 **골격** 만 (P2 에서 다출처 머지로 본격화).
-- 운영 중 Airflow 4 DAG 가 dbt/compaction/backfill/SLO 를 각각 담당 — 1번 포트폴리오의 "cron 대용 Airflow" 약점 closure.
+- 운영 중 Airflow 4 DAG 가 dbt/compaction/backfill/SLO 를 각각 담당 — 레시핑의 cron 대용 사용에서 본 프로젝트의 본진 4 DAG 운영으로 진화.
 
 ---
 
@@ -226,7 +226,7 @@ flowchart LR
 
   subgraph OBS["📊 관측 · CI"]
     FUI["Flink Web UI"]:::obs
-    SLO["Python SLO<br/>P95 < 7분"]:::obs
+    SLO["Python SLO<br/>두 가지 측정<br/>freshness 45m·latency 7m"]:::obs
     GHA["GitHub Actions"]:::obs
   end
 
@@ -266,16 +266,16 @@ flowchart LR
 
 | 기술 / 구성 | 용도 | Phase | 비고 / 차별점 |
 |------------|------|-------|--------------|
-| **Apache Kafka (KRaft single-node)** | 4종 이종 소스 메시지 버스. Replay + Flink exactly-once 기반. | P1A · P1B | 1번 3-node → single-node 의식적 단순화 (24GB + Day 9 Spark OOM 회피). SPOF 는 limitation 으로 인정. |
-| **Debezium** | Postgres `places` → `place.master.cdc.v1` CDC. | P1A · P1B | 1번에 부재였던 CDC 패턴. `dim_place` SCD2 골격 입력. |
-| **PyFlink (메인 streaming)** | 4 토픽 컨슈머 + Bronze 적재 + region join. exactly-once. | P1A · P1B | 1번 streaming 부재 → **본 프로젝트 streaming 진정성의 핵심**. 신선도 P95 < 7분 SLO. |
-| **Apache Spark batch (보조)** | Day 9 Iceberg `MERGE INTO` + `rewrite_data_files` 멱등성·Compaction 검증. | P1A | 1번 페이지 9·11 의 "Dynamic Partition Overwrite **예정**" / "Compaction **도입 예정**" closure. Day 9 만 일시 기동. |
-| **Apache Iceberg** | Bronze / Silver / Gold 레이크하우스. | P1A · P1B | 1번에도 있었으나 본 프로젝트는 streaming sink + SCD2 + Compaction 까지 풀세트. |
-| **Lakekeeper REST Catalog** (fallback: JdbcCatalog) | Iceberg 카탈로그 / 스키마 관리. | P1A · P1B | 1번 Hive Metastore 와 차별화 + 메모리 절감. |
-| **dbt-core** | Silver → Gold SQL 변환 + dbt tests. | P1A · P1B | 1·2번 모두 부재. dbt tests = 데이터 품질 자동화 도입. |
-| **DuckDB** | Iceberg 직접 쿼리 + notebook 분석. | P1A · P1B | Trino(1번) 대비 메모리·운영 부담 최소. P2 에 Trino single-node 옵션. |
-| **Apache Airflow (LocalExecutor + SQLite metadata)** | 본진 4 DAG: `dbt_full_run` / `iceberg_maintenance` / `backfill_silver_from_bronze` / `slo_daily_report`. | P1A · P1B | 1번 "cron 대용 Airflow" 약점 closure. **DAG 의존성 · SLA · TaskGroup · dynamic task mapping · BranchPython · XCom · on_failure_callback** 본진 기능 직접 운영. ~700MB 로 메모리 mitigation. |
-| **pytest** | PyFlink transform 단위 테스트. | P1A · P1B | 1번 테스트 코드 부재 약점 closure. |
+| **Apache Kafka (KRaft single-node)** | 4종 이종 소스 메시지 버스. Replay + Flink exactly-once 기반. | P1A · P1B | 레시핑의 3-node → single-node 의식적 단순화 (24GB + Day 9 Spark OOM 회피). SPOF 는 limitation 으로 인정. |
+| **Debezium** | Postgres `places` → `place.master.cdc.v1` CDC. | P1A · P1B | 레시핑에 부재였던 CDC 패턴. `dim_place` SCD2 골격 입력. |
+| **PyFlink (메인 streaming)** | 4 토픽 컨슈머 + Bronze 적재 + region join. exactly-once. | P1A · P1B | 레시핑의 streaming 부재 → 본 프로젝트에서 streaming 본격 도입. 두 가지 SLO (freshness 45m / platform latency 7m). |
+| **Apache Spark batch (보조)** | Day 9 Iceberg `MERGE INTO` + `rewrite_data_files` 멱등성·Compaction 검증. | P1A | 레시핑의 Dynamic Partition Overwrite + Compaction 후속 작업 보강. Day 9 만 일시 기동. |
+| **Apache Iceberg** | Bronze / Silver / Gold 레이크하우스. | P1A · P1B | 레시핑에도 있었으나 본 프로젝트는 streaming sink + SCD2 + Compaction 까지 통합 운영. |
+| **Lakekeeper REST Catalog** (fallback: JdbcCatalog) | Iceberg 카탈로그 / 스키마 관리. | P1A · P1B | 레시핑의 Hive Metastore 와 차별화 + 메모리 절감. |
+| **dbt-core** | Silver → Gold SQL 변환 + dbt tests. | P1A · P1B | 레시핑·E-commerce 모두 부재. dbt tests = 데이터 품질 자동화 도입. |
+| **DuckDB** | Iceberg 직접 쿼리 + notebook 분석. | P1A · P1B | Trino (레시핑) 대비 메모리·운영 부담 최소. P2 에 Trino single-node 옵션. |
+| **Apache Airflow (LocalExecutor + SQLite metadata)** | 본진 4 DAG: `dbt_full_run` / `iceberg_maintenance` / `backfill_silver_from_bronze` / `slo_daily_report`. | P1A · P1B | 레시핑의 cron 대용 사용 → 본 프로젝트의 본진 4 DAG 운영으로 진화. **DAG 의존성 · SLA · TaskGroup · dynamic task mapping · BranchPython · XCom · on_failure_callback** 본진 기능 직접 운영. ~700MB 로 메모리 mitigation. |
+| **pytest** | PyFlink transform 단위 테스트. | P1A · P1B | 레시핑의 테스트 코드 부재 보강. |
 
 ### B. 인프라 / 호스팅
 
@@ -310,9 +310,9 @@ flowchart LR
 
 | 기술 / 구성 | 용도 | Phase | 비고 |
 |------------|------|-------|------|
-| **GitHub Actions** | PyFlink · dbt PR 검증 (lint · test). | P1A · P1B | 1·2번 모두 부재였던 CI/CD for Data 약점 closure. |
+| **GitHub Actions** | PyFlink · dbt PR 검증 (lint · test). | P1A · P1B | 레시핑·E-commerce 모두 부재였던 CI/CD for Data 보강. |
 | **Flink Web UI** | streaming 작업 모니터링 (exactly-once · checkpoint · backpressure). | P1A · P1B | 운영 가시화 데모. |
-| **자체 Python SLO 스크립트** | 데이터 신선도 P95 측정 (`tm` → Iceberg Gold). | P1A · P1B | SLO < 7분 검증. P2 에 Grafana Cloud Free 추가 검토. |
+| **자체 Python SLO 스크립트** | 두 가지 SLO 측정 — Data Freshness (`tm` → Iceberg Gold) + Platform Latency (`silver_arrival_ts` → Gold). | P1A · P1B | Freshness P95 < 45분 + Latency P95 < 7분. P2 에 Grafana Cloud Free 추가 검토. |
 | **dbt tests** | Silver / Gold 컬럼 제약 · 관계 검증. | P1A · P1B | P2 에 Great Expectations 추가. |
 
 ### F. P2 확장 시 추가 예정 (참고)

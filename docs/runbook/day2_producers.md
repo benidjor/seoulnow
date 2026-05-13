@@ -1,6 +1,6 @@
 # Day 2 Producers Runbook
 
-서울 OpenAPI 두 종 (도시데이터 핫스팟 + 지하철 도착정보) 을 Kafka 토픽으로 발행하는 host-측 Python producer 운영 매뉴얼.
+서울 OpenAPI 두 가지 (도시데이터 핫스팟 + 지하철 도착정보) 을 Kafka 토픽으로 발행하는 host-측 Python producer 운영 매뉴얼.
 
 > **이전 day**: [`day1_infra.md`](./day1_infra.md) (Day 1 인프라)
 >
@@ -22,7 +22,7 @@
 uv sync --extra dev                   # .venv 동기화 (의존성 91 / 설치 61)
 ```
 
-### Producer 두 종 백그라운드 실행
+### Producer 두 가지 백그라운드 실행
 
 ```bash
 uv run python -m producers.hotspot_producer &     # 5분 polling, 핫스팟 3곳

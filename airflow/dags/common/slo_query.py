@@ -1,4 +1,4 @@
-"""Day 10 PR α — `slo_daily_report` DAG 의 두 종 SLO 측정 entry point.
+"""Day 10 PR α — `slo_daily_report` DAG 의 두 가지 SLO 측정 entry point.
 
 BashOperator subprocess 안에서 dbt-venv 의 python 으로 호출 (Day 9 PR γ Option B
 패턴 reuse — Airflow base image 에 duckdb / pyiceberg 직접 안 깔고 venv 격리).
@@ -52,7 +52,7 @@ from flink_jobs.slo_metrics import (  # noqa: E402
 
 
 def run() -> dict[str, Any]:
-    """두 종 SLO 측정 → dict (JSON serializable). XCom payload schema."""
+    """두 가지 SLO 측정 → dict (JSON serializable). XCom payload schema."""
     freshness, latency = fetch_dual_samples_from_gold()
     report = summarize_dual(freshness, latency)
     return {

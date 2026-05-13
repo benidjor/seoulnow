@@ -1,4 +1,4 @@
-"""Day 4 Task 4.2 + Day 10 PR α — 두 종 SLO 측정.
+"""Day 4 Task 4.2 + Day 10 PR α — 두 가지 SLO 측정.
 
 Day 10 PR α 정정 (spec §6-2 SoT):
 
@@ -56,7 +56,7 @@ class MetricSummary:
 
 @dataclass
 class SLOReport:
-    """두 종 SLO 의 합 (data freshness + platform latency)."""
+    """두 가지 SLO 의 합 (data freshness + platform latency)."""
 
     data_freshness: MetricSummary
     platform_latency: MetricSummary
@@ -144,7 +144,7 @@ def summarize_dual(
     freshness_samples: Sequence[int],
     latency_samples: Sequence[int],
 ) -> SLOReport:
-    """두 종 sample → SLOReport. 각각 독립 summarize."""
+    """두 가지 sample → SLOReport. 각각 독립 summarize."""
     return SLOReport(
         data_freshness=summarize_one(
             "data_freshness", freshness_samples, SLO_DATA_FRESHNESS_SECONDS
@@ -156,7 +156,7 @@ def summarize_dual(
 
 
 def fetch_dual_samples_from_gold() -> tuple[list[int], list[int]]:
-    """`gold.fact_hotspot_congestion_5min` 최근 24h row 의 두 종 lag list.
+    """`gold.fact_hotspot_congestion_5min` 최근 24h row 의 두 가지 lag list.
 
     - freshness = `gold_arrival_ts - last_api_response_ts` (= API tm)
     - platform_latency = `gold_arrival_ts - last_silver_arrival_ts` (= Kafka broker ts)

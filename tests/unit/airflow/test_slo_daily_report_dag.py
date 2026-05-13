@@ -8,7 +8,7 @@ Plan §Task 10.3 TDD Step 1-7 (6 case + threshold constants = 7 case):
 4. branch_on_slo_violation — 둘 다 안 위반 → "skip_alert".
 5. XCom keys consistent — branch_on_slo_violation 의 pull task_ids 가
    "collect_slo_metrics" 와 일치.
-6. build_slo_alert_message — payload 에 두 종 메트릭 모두 포함 + 위반 SLO 명시.
+6. build_slo_alert_message — payload 에 두 가지 메트릭 모두 포함 + 위반 SLO 명시.
 7. DAG 의 SLO 임계값 상수가 spec §6-2 SoT (45m / 7m) 와 일치.
 
 host venv 는 airflow 미설치 (pyproject.toml 의 dep 미포함 — Airflow 는 컨테이너
@@ -117,7 +117,7 @@ def test_xcom_keys_consistent():
 
 
 def test_send_alert_payload_includes_both_metrics():
-    """build_slo_alert_message — payload 에 두 종 메트릭 모두 포함 + 위반 SLO 명시."""
+    """build_slo_alert_message — payload 에 두 가지 메트릭 모두 포함 + 위반 SLO 명시."""
     from common.callbacks import build_slo_alert_message  # type: ignore
 
     report = {
