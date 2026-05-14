@@ -88,45 +88,285 @@ seoul-citydata-platform/
 
 **목표 (spec §7-1, §7-2):** 브라우저 → Cloudflare Pages Functions Edge API → Cloudflare Tunnel → Oracle Cloud HTTP receiver (FastAPI) → Kafka `user.events.v1` 토픽 발행. 익명 ID 쿠키 UUID 발급 (1년 만료, IP 영구저장 X).
 
+> Day 11 본문 = plan-update commit 으로 상세 step 박힘 (Phase 1A Week 2 Task 9.3 / 10.3 점진적 작성 패턴 reuse, `[[airflow-decision]]` SoT). Task 11.1 (Edge API) + Task 11.2 (FastAPI receiver) + Task 11.3 (topic schema) 의 코드 골격 / TDD step / 검증 명령 / fallback 모두 명시.
+
 ### Task 11.1: Cloudflare Pages Functions Edge API + anon_id 쿠키
 
-**Files:** `frontend/cloudflare-pages-functions/api/v1/events/POST.ts` 신규, `lib/cookie-anon.ts` 신규.
+**Files:**
+- Create: `frontend/cloudflare-pages-functions/api/v1/events/POST.ts` — Edge API entry, anon_id 쿠키 발급 / 검증 + Tunnel HTTPS forward
+- Create: `frontend/cloudflare-pages-functions/lib/cookie-anon.ts` — `getOrCreateAnonId(request, response)` helper. Web Crypto `randomUUID()` + Set-Cookie 헤더
+- Create: `frontend/cloudflare-pages-functions/lib/event-validator.ts` — 클라이언트 전달 payload 의 `event_type` enum / 필수 필드 검증 (Task 11.3 의 schema 와 정합)
+- Modify: `frontend/next-app/lib/events-client.ts` — 브라우저 측 fetch wrapper (`postEvents(events: Event[])`)
 
-**골격:** Cloudflare Edge runtime + Web Crypto `randomUUID()` + cookie set/get (`anon_id`, 1년 만료, Secure / HttpOnly / SameSite=Lax) + Tunnel HTTPS POST to HTTP receiver.
+**Goal:** 브라우저가 `POST /api/v1/events` 1회 → Edge API 가 (a) cookie 에 anon_id 있으면 reuse / 없으면 UUID 발급 (b) payload 의 event_type / required field 검증 (c) Tunnel HTTPS 로 `https://receiver.internal/v1/events` POST forward (Bearer token 헤더 = Cloudflare Workers secret) (d) `Set-Cookie: anon_id=<uuid>; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax` 응답.
 
-**검증:** `curl -X POST https://seoul-citydata.pages.dev/api/v1/events -H 'Content-Type: application/json' -d '{"event_type":"map_view","page":{"path":"/"}}'` → 200 응답 + `Set-Cookie: anon_id=<uuid>` 헤더.
+**TypeScript 골격 (Cloudflare Pages Functions context):**
 
-**fallback (spec §9-2 Day 11):** (a) Postgres `events_inbox` + Debezium 으로 우회, (b) HTTP receiver 위치 변경.
+```typescript
+// frontend/cloudflare-pages-functions/api/v1/events/POST.ts
+import { getOrCreateAnonId } from "../../../lib/cookie-anon";
+import { validateEvents } from "../../../lib/event-validator";
+
+interface Env {
+  RECEIVER_URL: string;       // https://receiver.internal/v1/events (Tunnel 내부)
+  RECEIVER_TOKEN: string;     // Bearer 토큰 (Workers secret)
+  ANON_UA_SALT: string;       // ua_hash salt (Workers secret)
+}
+
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const response = new Response();
+  const anonId = getOrCreateAnonId(request, response);
+
+  const payload = await request.json<{ events: unknown[] }>();
+  const validated = validateEvents(payload.events ?? [], { anonId, salt: env.ANON_UA_SALT });
+
+  const forward = await fetch(env.RECEIVER_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.RECEIVER_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ events: validated }),
+  });
+
+  if (!forward.ok) {
+    return new Response(JSON.stringify({ error: "forward_failed" }), { status: 502, headers: response.headers });
+  }
+  return new Response(JSON.stringify({ accepted: validated.length }), { status: 200, headers: response.headers });
+};
+```
+
+```typescript
+// frontend/cloudflare-pages-functions/lib/cookie-anon.ts
+const ANON_COOKIE = "anon_id";
+const ONE_YEAR_S = 60 * 60 * 24 * 365;
+
+export function getOrCreateAnonId(request: Request, response: Response): string {
+  const cookie = request.headers.get("Cookie") ?? "";
+  const match = cookie.match(/anon_id=([0-9a-f-]{36})/);
+  if (match) return match[1];
+
+  const anonId = crypto.randomUUID();
+  response.headers.append(
+    "Set-Cookie",
+    `${ANON_COOKIE}=${anonId}; Max-Age=${ONE_YEAR_S}; Path=/; Secure; HttpOnly; SameSite=Lax`,
+  );
+  return anonId;
+}
+```
+
+**검증:**
+- `curl -X POST https://seoul-citydata.pages.dev/api/v1/events -H 'Content-Type: application/json' -d '{"events":[{"event_type":"map_view","event_ts":"2026-05-15T01:00:00Z","page":{"path":"/"}}]}' -i` → 200 응답 + `Set-Cookie: anon_id=<uuid>` 헤더 (첫 요청) + `{"accepted":1}` body
+- 두 번째 호출 시 cookie reuse 확인 (`Set-Cookie` 헤더 부재 또는 동일 anon_id)
+- Cloudflare Pages preview deployment 1회 정상 build (Wrangler `npx wrangler pages dev` 로컬 동작 검증)
+
+**fallback (spec §9-2 Day 11):**
+- (a) Cloudflare Tunnel 셋업 4h 초과 → Postgres `events_inbox` 테이블 + Debezium 토픽으로 우회. Edge API 가 Pages Functions 가 아니라 Next.js API route 로 받고 Postgres 에 insert
+- (b) HTTP receiver 위치 변경 — Oracle Cloud 가 아닌 동일 VM 의 receiver container (Tunnel 없이 internal docker network 로만 노출, Pages Functions 가 직접 접근 불가 → 회피 안 1 채택)
 
 ### Task 11.2: Oracle Cloud HTTP receiver (FastAPI) + Kafka producer
 
-**Files:** `infra/http-receiver/Dockerfile`, `app.py`, `requirements.txt` 신규. `docker-compose.yml` 에 receiver 서비스 추가 (network internal, Tunnel 통과만).
+**Files:**
+- Create: `infra/http-receiver/Dockerfile` — `python:3.11-slim` 베이스, uv 의존성 install
+- Create: `infra/http-receiver/app.py` — FastAPI app + aiokafka producer + Bearer token 검증
+- Create: `infra/http-receiver/requirements.txt` — `fastapi==0.115.*`, `uvicorn[standard]==0.32.*`, `aiokafka==0.12.*`, `pydantic==2.*`
+- Create: `tests/integration/test_http_receiver.py` — TestClient + 모킹 Kafka producer (3 case: 정상 / 401 / 422)
+- Modify: `docker-compose.yml` — `http-receiver` 서비스 추가 (profile=`receiver`, network=`scp_net`, depends_on=kafka, 외부 노출 X)
 
-**골격:** FastAPI + Cloudflare Tunnel internal route (외부 IP 노출 X) + Kafka producer (`user.events.v1` 토픽, key=`anon_id`, acks=all).
+**Goal:** FastAPI receiver 가 `POST /v1/events` 수신 → (a) `Authorization: Bearer <token>` 검증 (불일치 401) (b) payload pydantic 검증 (422) (c) 각 event 를 Kafka `user.events.v1` 토픽으로 발행 (`key = event.anon_id`, `acks=all`, header `ingest_ts` 채움) (d) `{"published": <n>}` 응답.
 
-**검증:** producer 로컬 발행 → `docker exec scp-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic user.events.v1 --from-beginning --max-messages 1` 1건 확인.
+**Python 골격:**
+
+```python
+# infra/http-receiver/app.py
+from __future__ import annotations
+import os
+import json
+import uuid
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Header, HTTPException, status
+from pydantic import BaseModel, Field
+from aiokafka import AIOKafkaProducer
+
+KAFKA_BOOTSTRAP = os.environ["KAFKA_BOOTSTRAP_SERVERS"]
+RECEIVER_TOKEN = os.environ["RECEIVER_TOKEN"]
+TOPIC = "user.events.v1"
+
+producer: AIOKafkaProducer | None = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global producer
+    producer = AIOKafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        acks="all",
+        enable_idempotence=True,
+        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        key_serializer=lambda k: k.encode("utf-8"),
+    )
+    await producer.start()
+    yield
+    await producer.stop()
+
+app = FastAPI(lifespan=lifespan)
+
+class IncomingEvent(BaseModel):
+    event_id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    event_ts: datetime
+    anon_id: uuid.UUID
+    user_id: uuid.UUID | None = None
+    session_id: str | None = None
+    event_type: str
+    page: dict | None = None
+    client: dict | None = None
+    properties: dict | None = None
+
+class EventBatch(BaseModel):
+    events: list[IncomingEvent]
+
+@app.post("/v1/events")
+async def post_events(batch: EventBatch, authorization: str = Header(...)) -> dict:
+    if authorization != f"Bearer {RECEIVER_TOKEN}":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token")
+    if producer is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "producer not ready")
+
+    ingest_ts = datetime.now(timezone.utc).isoformat()
+    for ev in batch.events:
+        await producer.send_and_wait(
+            TOPIC,
+            value=ev.model_dump(mode="json"),
+            key=str(ev.anon_id),
+            headers=[("ingest_ts", ingest_ts.encode("utf-8"))],
+        )
+    return {"published": len(batch.events)}
+```
+
+```dockerfile
+# infra/http-receiver/Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app.py .
+EXPOSE 8400
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8400"]
+```
+
+**docker-compose.yml 추가 서비스:**
+
+```yaml
+http-receiver:
+  build: ./infra/http-receiver
+  container_name: scp-http-receiver
+  profiles: ["receiver"]
+  networks: [scp_net]
+  environment:
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    RECEIVER_TOKEN: ${RECEIVER_TOKEN}
+  depends_on:
+    kafka: { condition: service_healthy }
+```
+
+**TDD 단계 (3 case, pytest + TestClient):**
+- Step 1: 실패 테스트 작성
+  - `test_post_events_unauthorized()` — Bearer 토큰 불일치 → 401
+  - `test_post_events_invalid_payload()` — `event_ts` 누락 → 422
+  - `test_post_events_publishes_to_kafka()` — 정상 payload → 200 + 모킹 producer `send_and_wait` 1회 호출 + ingest_ts header 부착 확인
+- Step 2: 테스트 fail 확인 (`pytest tests/integration/test_http_receiver.py -v`)
+- Step 3: `app.py` 본문 작성 (위 골격)
+- Step 4: 테스트 PASS 확인 (3 PASS)
+- Step 5: `docker compose --profile receiver up -d http-receiver` 후 호스트에서 `curl -X POST http://localhost:8400/v1/events -H 'Authorization: Bearer <token>'` smoke 1회
+
+**검증 명령:**
+- `pytest tests/integration/test_http_receiver.py -v` → 3 PASS
+- producer 로컬 발행 후 `docker exec scp-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic user.events.v1 --from-beginning --max-messages 1` 1건 수신 + JSON payload 의 `event_type` / `anon_id` / `event_ts` 필드 확인
+- `docker compose --profile receiver logs http-receiver | grep "Started server process"` 정상 boot 확인
+
+**fallback:** aiokafka 의존성 build 실패 시 `confluent-kafka-python` 으로 교체 (레시핑에서 사용한 라이브러리, ClassLoader 충돌 없음).
 
 ### Task 11.3: `user.events.v1` 토픽 생성 + event schema 명세
 
-**Files:** `docker-compose.yml` topic init script 갱신 + `docs/topics/user-events-v1-schema.md` 신규 (`[[deferred-items-post-day10]]` §3 schema SoT).
+**Files:**
+- Modify: `infra/kafka/create_topics.sh` — `user.events.v1` 토픽 init (`--partitions 6 --replication-factor 1 --config retention.ms=2592000000`, 30일 retention)
+- Create: `docs/topics/user-events-v1-schema.md` — JSON Schema + 필드별 의도 + 개인정보 회피 정책 + Task 11.1/11.2 연결 (`[[deferred-items-post-day10]]` §3 SoT)
+- Create: `infra/http-receiver/schemas/user_events_v1.json` — JSON Schema 본문 (FastAPI pydantic 모델과 1:1 매핑)
+- Create: `tests/unit/test_user_events_schema.py` — JSON Schema 검증 2 case (event_id uuid + event_type enum)
 
-**Schema** (deferred-items-post-day10 §3 SoT):
-- `event_id` uuid (멱등 key)
-- `event_ts` ISO8601
-- `ingest_ts` Kafka header (receiver 가 채움)
-- `anon_id` (쿠키, 항상 채워짐)
-- `user_id` (null Phase 1B Day 11-14, Day 15 회원가입 후 채워짐) **= forward compatibility 핵심**
-- `session_id` (탭 단위 또는 30분 idle)
-- `event_type` enum: `map_view | hotspot_click | district_filter | bookmark_add | bookmark_remove | push_subscribe | push_unsubscribe | privacy_view | signup_complete`
-- `page` {path, referrer}
-- `client` {ua_hash salted, viewport}
-- `properties` JSON (event_type 별 가변 schema)
+**Schema 본문** (deferred-items-post-day10 §3 SoT, JSON Schema Draft 2020-12):
 
-**개인정보 회피**: IP 영구저장 X / ua_hash salted (salt 는 Cloudflare Workers secret) / `/privacy` 페이지 의무.
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seoul-citydata.pages.dev/schemas/user_events_v1.json",
+  "title": "user.events.v1",
+  "type": "object",
+  "required": ["event_id", "event_ts", "anon_id", "event_type"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_ts": { "type": "string", "format": "date-time" },
+    "ingest_ts": { "type": "string", "format": "date-time", "description": "receiver 가 Kafka header 로 채움" },
+    "anon_id": { "type": "string", "format": "uuid" },
+    "user_id": { "type": ["string", "null"], "format": "uuid", "description": "Day 15 회원가입 후 채워짐, forward compatibility" },
+    "session_id": { "type": ["string", "null"], "maxLength": 64 },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "map_view", "hotspot_click", "district_filter",
+        "bookmark_add", "bookmark_remove",
+        "push_subscribe", "push_unsubscribe",
+        "privacy_view", "signup_complete"
+      ]
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "maxLength": 256 },
+        "referrer": { "type": ["string", "null"], "maxLength": 256 }
+      }
+    },
+    "client": {
+      "type": "object",
+      "properties": {
+        "ua_hash": { "type": "string", "description": "salted SHA-256, IP 영구저장 X" },
+        "viewport": { "type": "object", "properties": { "w": {"type": "integer"}, "h": {"type": "integer"} } }
+      }
+    },
+    "properties": { "type": ["object", "null"], "description": "event_type 별 가변 schema" }
+  },
+  "additionalProperties": false
+}
+```
 
-**검증:** schema 가 JSON Schema 으로 명세 + 단위 테스트 1건 (event_id uuid 검증 + event_type enum 검증).
+**개인정보 회피 (spec §7-3):** IP 영구저장 X / `ua_hash` = SHA-256(ua + salt) (salt = Cloudflare Workers secret `ANON_UA_SALT`) / `/privacy` 페이지 의무 (Day 13 Task 13.1).
 
-**상세 step / 코드** = Day 11 진입 직전 plan-update commit 으로 별도 작성 (Phase 1A Week 2 의 점진적 패턴 reuse).
+**TDD 단계 (2 case + topic init smoke):**
+- Step 1: 실패 테스트 작성
+  - `test_event_id_must_be_uuid()` — `event_id` 가 uuid 형식 아니면 ValidationError
+  - `test_event_type_must_be_in_enum()` — `event_type` 이 enum 외 값이면 ValidationError
+- Step 2: 테스트 fail 확인
+- Step 3: `schemas/user_events_v1.json` 본문 + `jsonschema` 검증 helper 작성
+- Step 4: 테스트 PASS 확인 (2 PASS)
+- Step 5: `./infra/kafka/create_topics.sh` 재실행 → `user.events.v1` 토픽 생성 (`docker exec scp-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic user.events.v1` 으로 partitions=6 + retention 확인)
+
+**검증 명령:**
+- `pytest tests/unit/test_user_events_schema.py -v` → 2 PASS
+- `docker exec scp-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic user.events.v1` → 6 partitions / retention.ms=2592000000 확인
+- Task 11.1 + 11.2 의 end-to-end smoke (브라우저 1회 → Edge API → receiver → Kafka 1 row) 후 `docs/topics/user-events-v1-schema.md` 의 schema 와 실 메시지 payload 일치 확인
+
+---
+
+### Day 11 종료 게이트 (3 task 통합)
+
+- [ ] Task 11.1 — `curl` smoke 200 + Set-Cookie 헤더 + 두 번째 호출 reuse
+- [ ] Task 11.2 — pytest 3 PASS + Kafka consumer 1건 수신
+- [ ] Task 11.3 — pytest 2 PASS + 토픽 partitions=6 + 30일 retention
+- [ ] end-to-end smoke — 브라우저 → Pages Functions → Tunnel → receiver → Kafka 1 row + payload schema 일치
+- [ ] `docs/runbook/day-11-edge-api.md` 작성 (운영 절차 + 환경 편차 + Cloudflare Tunnel secret 발급 단계)
+
+---
 
 ---
 
