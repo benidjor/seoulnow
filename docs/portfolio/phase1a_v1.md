@@ -188,8 +188,6 @@ Path B 한계 명시 — bronze→silver 의 lag (Kafka broker → silver 적재
 - **β (Platform Latency P95 = 0s) — 평시 결과로 인정**: silver→gold streaming 이 5min tumbling window 안에 즉시 처리되어 `silver_arrival_ts ≈ gold_arrival_ts`. 정상 streaming 동작의 산출물. 7분 임계 안 통과.
 - **α (Data Freshness P95 = 52.96h) — backfill 직후 측정값**: Day 9 ~ Day 10 작업 도중 Flink streaming jobs 일시 정지로 bronze 에 53h 분량 historical row 누적. Day 10 재기동 후 Flink 가 Kafka LAG = 0 까지 모두 소진 (`flink-bronze-hotspot` consumer group: partition 0 1315/1315, partition 2 660/660). 24h SLO window 안에 backfill 처리된 row 의 `api_response_ts` (= API tm) 가 53h+ 옛날인 row 가 포함되어 결과 왜곡.
 
-**평시 결과 재측정 의무** — 본 측정 시점 + 24h 후 (`slo_daily_report` DAG 자동 첫 실행, schedule `0 9 * * *`) 결과를 인용한 별도 commit 으로 본 §4.5 표 갱신. Phase 1B Day 14 또는 강화 리포트 v2 (Day 18) 시점에 일괄 처리.
-
 **측정 명령** (재현):
 
 ```bash
@@ -197,6 +195,22 @@ JAVA_HOME=$(/usr/libexec/java_home -v 17) uv run --extra flink python airflow/da
 ```
 
 stdout 마지막 라인 = JSON SLOReport (`data_freshness` + `platform_latency` dataclass).
+
+#### 4.5.1. 평시 결과 도달 (2026-05-17 재측정)
+
+위 backfill 직후 측정값 (2026-05-14 02:06 KST) + 3일 streaming 가동 후 24h SLO window 가 backfill row 모두 빠진 시점의 평시 재측정 결과:
+
+| SLO | count | p50 | p95 | p99 | max | 임계값 | 결과 |
+|---|---|---|---|---|---|---|---|
+| (α) Data Freshness | 1175 | 31m | **33m** | 33.5m | 33.5m | < 45m | **통과** |
+| (β) Platform Latency | 1175 | 0s | **0s** | 0s | 0s | < 7m | **통과** |
+
+**해석 — 두 SLO 모두 평시 통과**:
+
+- **(α) Data Freshness P95 = 33m (1978s)** — source lag (서울 OpenAPI `tm` 약 30분 옛 데이터 반환) inherent 반영, 45분 임계값 안. 모든 percentile spread = 2.5분 (150초) = source 측 시각 일관 lag 시그니처. archive 본문 §1.2 의 Day 8 첫 실측 패턴 (`p95=3.3h`, percentile 거의 동일) 과 동일 시그니처지만 임계값 안 통과.
+- **(β) Platform Latency P95 = 0s** — backfill 직후 측정과 동일 (silver→gold streaming 즉시 처리). 평시 결과 인정.
+
+**평시 도달 inherent 검증** — 직전 측정 (2026-05-14 02:06 KST, backfill 직후) Data Freshness P95 = 52.96h → 본 측정 (2026-05-17, 3일 후) P95 = 33m. archive `2026-05-14-day-10-flink-mini-cluster-and-backfill.md` §2.5 의 "24h SLO window 안 backfill row 모두 빠질 때 평시 결과 도달" inherent 검증 완료.
 
 ### 4.6. dbt tests (DQ)
 
