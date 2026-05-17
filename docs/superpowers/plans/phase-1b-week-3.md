@@ -580,9 +580,24 @@ CREATE TABLE places_external (
 
 **Files:** `dbt/seoul/models/marts/congestion_grade_5min.sql` 신규.
 
-**골격:** `avg_congest_score` 임계값 매핑 — `< 25 = 여유`, `25-50 = 보통`, `50-75 = 약간 붐빔`, `>= 75 = 붐빔`. 자치구 단위 group by + 5min window. dbt test (등급 enum 검증 + 자치구 not_null).
+**골격:** `avg_congest_score` 임계값 매핑 (실측 enum 1-4 기준 + Day 8 `chill_open_now` 정합) —
 
-**검증:** dbt run + dbt test PASS + DuckDB 쿼리 sample 결과 확인 (강남구 / 마포구 / 영등포구 3개 자치구 등급 분포).
+| `avg_congest_score` 구간 | 등급 |
+|---|---|
+| `<= 1.5` | `여유` |
+| `(1.5, 2.0]` | `보통` |
+| `(2.0, 3.0]` | `약간 붐빔` |
+| `> 3.0` | `붐빔` |
+
+자치구 단위 group by + 5min window. dbt test (등급 enum 검증 + 자치구 not_null).
+
+**임계값 SoT 정정 (2026-05-17, plan-update PR):** 본 plan 의 직전 임계값 가정 (`<25 / 25-50 / 50-75 / >=75`, 1-100 스케일) 은 silver 실측과 불일치. 정정 근거 3건:
+
+1. **실측 `congest_level_score` enum** — `src/flink_jobs/lib/transforms.py:10-15` 의 `CONGEST_LEVEL_MAP = {"여유": 1, "보통": 2, "약간 붐빔": 3, "붐빔": 4}` + NULL 처리 0. `dbt/seoul/models/marts/schema.yml` 의 `accepted_values: [0, 1, 2, 3, 4]` SoT 일치.
+2. **mart `avg_congest_score` 실측 범위** — `src/flink_jobs/silver_to_gold.py:132` `AVG(CAST(congest_level_score AS DOUBLE))` + staging `> 0` filter → 실측 1.0-4.0 (fractional, 자치구 평균).
+3. **Day 8 `chill_open_now` 정합** — `dbt/seoul/models/marts/schema.yml` 의 `chill_open_now.avg_congest_score <= 2` (한가 후보 임계값) 이미 정착. Option B 의 `여유 ⊥ 보통` 경계 = `1.5`, `보통 ⊥ 약간 붐빔` 경계 = `2.0` 으로 chill 의 `<= 2` 경계와 일치 → 한가 = `여유` ∪ `보통` 으로 등급 정의 정합.
+
+**검증:** dbt run + dbt test PASS + DuckDB 쿼리 sample 결과 확인 (강남구 / 마포구 / 영등포구 3개 자치구 등급 분포). `accepted_values: ["여유", "보통", "약간 붐빔", "붐빔"]` enum test + 4개 등급 모두 1건 이상 분포 검증.
 
 ### Task 17.2: Apache Superset 단일 노드 기동 (0.5d)
 
