@@ -1,0 +1,4 @@
+# Airflow scheduler 가 DAG 로 parse 하지 않을 file 패턴 (regex).
+# common/ 안 helper 모듈은 dag file 이 아니므로 parse 회피 의무.
+# slo_query.py = BashOperator subprocess 호출용 wrapper (dbt-venv python 으로 실행).
+common/slo_query\.py
