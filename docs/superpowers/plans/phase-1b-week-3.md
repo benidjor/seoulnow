@@ -524,51 +524,134 @@ CREATE INDEX idx_users_anon ON users(anon_id);
 
 ---
 
-## Day 16 — 카카오 / 네이버 외부 가게 정보 (영업시간 + 별점)
+## Day 16 — 카카오맵 + 네이버지도 외부 가게 정보 (다중 출처 분리 정책)
 
-**목표 (`[[deferred-items-post-day10]]` §1 SoT, 사용자 결정 2026-05-14):** Google Places API 의 한국 데이터 정확도 한계 → 카카오 로컬 API 또는 네이버 검색 API 또는 스크래핑으로 카페·술집 영업시간 + 별점 도입. `places_external` Postgres 테이블 + dbt mart join. ToS 위반 risk 인지 + 채용 기대 낮음 입장 명시 (메모리 SoT).
+**목표 (2026-05-14 도입 결정 + 2026-05-19 brainstorm 정정, `[[skill-references-integration]]` SoT):** Google Places 한국 정확도 한계 → 다중 출처 분리. **카카오맵 panel3 backchannel = 평점만** (NomaDamas kakao-bar-nearby skill 검증 endpoint 차용). **네이버지도 backchannel = 가게이름 / 영업시간 / 영업상태 / 전화번호** (endpoint = Day 16 진입 직전 결정). `places_external` 18 컬럼 schema (SearchAPI Knowledge Graph form 차용). attribution 분리 표시 의무. 거버넌스 단일 출처 = `docs/governance/external_data_tos.md`. ToS risk 인지 + 채용 기대 낮음 입장.
 
-### Task 16.1: 데이터 source 결정 + 의사결정 문서
+### Task 16.1: 다중 출처 결정 doc (0.3d)
 
 **Files:** `docs/decisions/2026-05-DD-external-place-source.md` 신규.
 
-**결정 항목** (Day 16 시작 시 사용자 결정):
-- API 키 발급 가능 여부 (카카오 개발자 무료 vs 네이버 검색 API 무료 한도 vs 스크래핑)
-- rate limit (카카오 = 일 300k 무료, 네이버 = 일 25k 무료)
-- 스크래핑 ToS risk 인지 (네이버 소송 사례 다수, 카카오 cease-and-desist)
-- 우선순위 = (1) 카카오 로컬 API → (2) 네이버 검색 API → (3) 스크래핑 (최후 옵션)
+**결정 항목 본문** (Day 16 진입 시점 작성):
 
-### Task 16.2: `places_external` 테이블 + scraper/fetcher
+1. **다중 출처 결정 trace** (본 plan 결정 영속화)
+2. **카카오맵 측 검증 endpoint** (NomaDamas kakao-bar-nearby skill SoT):
+   - 검색: `https://m.map.kakao.com/actions/searchView?q=<query>`
+   - anchor 후보 → confirmId 추출
+   - 상세: `https://place-api.map.kakao.com/places/panel3/<confirmId>`
+3. **네이버지도 endpoint 결정** (Day 16 진입 시점 confirmed, trigger): 후보 3 path —
+   - (a) 직접 backchannel scraping (DevTools Network 탭 inspect 결과)
+   - (b) third-party wrapping ($0-50/월): SearchAPI / Apify / Scrapfly
+   - (c) 공식 `/v1/search/local.json` + Google Places 통합 (영업시간 부재 보완)
+4. **attribution 분리 정책** (평점 = "카카오맵 출처" / 영업 정보 = "네이버지도 출처")
+5. **rate limit / 캐싱 TTL** (카카오 = 일 300k 무료, 네이버 = endpoint 결정 후 확정, 캐싱 7-30일)
+6. **Phase 2 대체안** (W2 UGC / W6 Google Places / W8 외부 공개 재검토)
 
-**Files:** `infra/postgres/migrations/005_places_external.sql` + `src/scrapers/kakao_local.py` + `src/scrapers/naver_local.py`.
+**검증:** doc 본문 ≥ 150 lines + `docs/governance/external_data_tos.md` 와 cross-reference 정합.
 
-**Schema:**
+### Task 16.2: `places_external` 테이블 + 2 fetcher + airflow DAG (0.5d)
+
+**Files:**
+- `infra/postgres/migrations/005_places_external.sql` 신규
+- `src/scrapers/kakao_local.py` 신규
+- `src/scrapers/naver_local.py` 신규
+- `airflow/dags/external_places_fetch.py` 신규
+
+**Schema (SearchAPI Knowledge Graph form 차용, 18 컬럼):**
 
 ```sql
 CREATE TABLE places_external (
-  place_id TEXT NOT NULL,
+  -- identity
+  biz_reg_no TEXT,
+  place_id_external TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('kakao','naver')),
-  opening_hours JSONB,
-  rating NUMERIC(3,1),
-  last_fetched_at TIMESTAMP DEFAULT NOW(),
-  raw_payload JSONB,
-  PRIMARY KEY (place_id, source)
+  fetched_at TIMESTAMP NOT NULL,
+
+  -- 공통
+  place_name TEXT,
+  category TEXT,
+  address TEXT,
+  road_address TEXT,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+
+  -- 평점 (카카오 우선)
+  rating NUMERIC(3,2),
+  visitor_review_count INT,
+  blog_review_count INT,
+
+  -- 연락처 (네이버 우선)
+  phone TEXT,
+
+  -- 영업 상태 / 영업시간 (네이버 우선, kb-1 schema 그릇 차용)
+  open_status_label TEXT,
+  open_status_detail TEXT,
+  open_status_source TEXT,
+  open_status_updated_ts TIMESTAMP,
+  open_hours_json JSONB,
+
+  -- 서비스 옵션
+  service_options JSONB,
+
+  PRIMARY KEY (place_id_external, source)
 );
 ```
 
-**골격:** Day 8 적재된 공공 인허가 places 의 `place_name + address` 로 카카오/네이버 검색 → opening_hours + rating 추출 → Postgres upsert. rate limit 안에서 batch (100 places / 5min).
+**`kakao_local.py` 골격:**
+- 입력 = Day 8 적재된 공공 인허가 `places` 의 `place_name + address`
+- 워크플로우 (kakao-bar-nearby skill 차용): `m.map.kakao.com/actions/searchView` → anchor → confirmId → `place-api.map.kakao.com/places/panel3/<id>`
+- **추출 = `rating` + `visitor_review_count` + `blog_review_count` 만** (다중 출처 분리 정책)
+- HTTP 헤더 = User-Agent + Referer 필수 (406 fallback)
+- rate limit = 일 300k + tenacity retry (`stop_after_attempt=3, wait_exponential`)
+- 캐싱 TTL = 7-30일 (`fetched_at` 기준 expiry)
+- Postgres upsert (source='kakao')
 
-**검증:** 100 row 적재 + 영업시간 정확도 sample 10건 수동 확인.
+**`naver_local.py` 골격 (endpoint placeholder — Day 16 진입 직전 plan-update commit 으로 확정):**
+- endpoint = Task 16.1 결정 결과 반영
+- **추출 = `place_name` / `category` / `address` / `phone` / `open_status_label` / `open_status_detail` / `open_hours_json` / `service_options` 8 필드**
+- schema form 검증 = SearchAPI Knowledge Graph reference
+- Postgres upsert (source='naver')
 
-### Task 16.3: dbt mart `chill_open_now` 의 외부 영업시간 join
+**`external_places_fetch.py` (airflow DAG) 골격:**
+- TaskGroup 2개 (kakao_fetch + naver_fetch)
+- 각 task = batch (100 places / 5min)
+- retry policy + on_failure_callback (Discord webhook)
+- 야간 02-05시 실행 (streaming peak 회피, `[[airflow-decision]]` SoT)
+
+**검증:**
+- `psql -c "\d places_external"` → 18 컬럼 + place_id_external × source 복합키 정상
+- kakao = 100 row 적재 + sample 10건 평점 정확도 수동 확인
+- naver = 100 row 적재 + sample 10건 가게이름 / 영업시간 / 전화번호 수동 확인
+- airflow DAG 야간 1회 정상 실행 + Discord 알림 hooked
+
+### Task 16.3: dbt mart `chill_open_now` 다중 출처 join (0.2d)
 
 **Files:** `dbt/seoul/models/marts/chill_open_now.sql` 갱신.
 
-**골격:** 기존 `chill_open_now` mart 가 공공 인허가 영업시간만 사용 → `places_external` (외부 source) join 추가. 외부 영업시간 우선 사용 + 공공 인허가 fallback. 별점 컬럼 추가.
+**다중 출처 join 우선순위:**
+- **영업 상태 / 영업시간** = `places_external WHERE source='naver'` 우선 → 없으면 공공 인허가 fallback
+- **평점** = `places_external WHERE source='kakao'` 단일 source
+- **가게이름 / 전화번호** = `places_external WHERE source='naver'` 우선 → 없으면 공공 인허가 fallback
 
-**검증:** `/chill` 페이지에서 외부 별점 + 정확한 영업시간 표시 확인.
+**mart 출력 컬럼 추가:**
+- `rating` (NUMERIC)
+- `rating_source` (TEXT, 항상 `'kakao'`)
+- `open_status_source` (TEXT, `'naver'` / `'public'` enum)
+- `open_status_updated_ts` (TIMESTAMP)
 
-**fallback:** API 키 발급 안 되면 스크래핑 (ToS risk 인지). 또는 Day 16 작업 1일 → 0.5일 축소 + 별점만 도입.
+**검증:** `/chill` 페이지에서 평점 (카카오 attribution) + 영업시간 (네이버 attribution) 분리 표시 확인.
+
+### fallback 정책 (kb-5 차용 + 자체)
+
+| 상황 | 정책 |
+|---|---|
+| kakao panel3 406 (header 변경) | UA/Referer 재시도 3회 → skip + Discord warning |
+| panel3 schema drift | raw_payload 보존, 정규화 layer 재처리 |
+| naver endpoint 응답 schema 변경 | Day 16 진입 직전 plan-update commit 으로 정정 |
+| API 키 / rate limit 초과 | `wait_exponential` retry + 캐싱 TTL 연장 (7일 → 14일) |
+| naver endpoint 정독 불가 | third-party 또는 공식+Google 통합 fallback (Phase 2 W6 당김) |
+
+전체 fallback 매트릭스 = `docs/governance/external_data_tos.md` §4 단일 출처.
 
 ---
 
