@@ -55,7 +55,7 @@
   2. **영업 시간 정보 접근 어려움** — 특히 심야에 "지금 영업 중이고 마감까지 1시간 이상 남은 카페·술집" 추천 (P1A Day 8 데모 / 가설 A 확정).
   3. **cafefinder 류 한국 유사 서비스 영감** — attribution 없는 ToS 위반 의심 패턴 대신 정공 path 로 차별화 (공공 인허가 + 외부 정보 + 익명 행동 통합).
   4. **3단계 기능 진화** — P1A 단순 필터 → P1B (Day 11-18) 회원가입 + 북마크 + 알림 + 외부 가게 정보 → P2 지역/가게 추천 점수 모델 (혼잡도 + 영업 + 별점 + 사용자 행동).
-  5. **외부 가게 정보 도입 결정** (2026-05-14) — 영업 시간 + 별점 출처로 카카오/네이버 정보를 도입 (Google Places 의 한국 데이터 정확도 한계 사용자 직접 확인). Phase 1B Day 16 작업 예정. ToS 위반 risk 인지 + 채용 기대 낮음 입장 명시.
+  5. **외부 가게 정보 도입 결정** (2026-05-14 + **2026-05-19 정정**) — Phase 1B Day 16 = **카카오맵 (평점) + 네이버지도 (가게이름 / 영업시간 / 영업상태 / 전화번호) 다중 출처 분리 정책.** Google Places 의 한국 데이터 정확도 한계 사용자 직접 확인 (2026-05-14). 구체 endpoint / schema / fallback = NomaDamas k-skill kakao-bar-nearby (평점 차용, 검증된 panel3 endpoint) + 네이버지도 자체 정독 결과 (endpoint = Day 16 진입 직전 결정). 거버넌스 단일 출처 = `docs/governance/external_data_tos.md`. ToS 위반 risk 인지 + 채용 기대 낮음 입장 명시. 차용 mapping → `[[skill-references-integration]]`.
 - 기존 포트폴리오 2건 보유.
   - **레시핑 (2025.07~10)** — 6인 팀, DE 단독. Self-hosted Lakehouse. 처리 흐름은 **Kafka → Kafka Connect (S3 Sink) → S3 → Spark batch (15분 주기, Airflow) → Iceberg → Trino → Superset.** **streaming 처리 자체는 없음** (Kafka는 적재 통로, Spark는 batch). 75% 인프라비 절감, 99.31% 정합성, 96.84% I/O 절감.
   - **E-commerce 유저 행동 분석 (2025.02~04)** — 1인. **Kaggle CSV → S3 → Snowflake (COPY/MERGE, 주간 batch) → Superset.** 48.7% 쿼리 스캔 감소, 45.6% 스키마 크기 감소.
@@ -93,7 +93,7 @@
 | Edge API → Kafka | **REST Proxy 패턴** (Cloudflare Pages Functions → HTTPS → Oracle Cloud HTTP receiver → Kafka) | Workers의 TCP 직접 연결 제약 회피, 디버깅 비용 최소화 |
 | 사용자 메타 저장소 | Cloudflare D1 (북마크, push subscription만) | 5GB 무료. **행동 로그는 절대 D1에 넣지 않음 — Kafka → Iceberg 직행** |
 | 알림 | Web Push (VAPID) + Workers Cron | 외부 서비스 의존 없음, 비용 0원 |
-| 가게 정보 출처 | **카카오/네이버 스크래핑 절대 금지** → 공공 인허가(P1) + Google Places API(P2) + 자체 UGC(P2) | ToS·법적 리스크 회피, 데이터 거버넌스 감각 어필 |
+| 가게 정보 출처 | **P1A** = 공공 인허가만 (정적 적재). **P1B Day 16** = 카카오맵 panel3 backchannel (평점만, kakao-bar-nearby skill 차용) + **네이버지도 backchannel** (가게이름 / 영업시간 / 영업상태 / 전화번호) **다중 출처 분리 정책**. attribution 의무 (카카오 / 네이버 분리 표시) + rate limit + 캐싱 TTL + Phase 2 Google Places 대체안 = `docs/governance/external_data_tos.md` 단일 출처. **P2** = Google Places API + 자체 UGC. | 2026-05-14 도입 결정 + 2026-05-19 reference 정독 정정 (`[[project-identity-correction]]` + `[[skill-references-integration]]` SoT). ToS risk 인지 + 채용 기대 낮음 입장 명시. |
 | Databricks | 본 프로젝트엔 미도입 | CE는 streaming 24/7 불가, Free Trial 14일 후 과금. Day 14 이후 별도 미니 프로젝트로 검토 가능 |
 
 ## 4. 데이터 소스 (모두 무료·합법)
@@ -168,7 +168,7 @@
 | 3 | **익명 동네 북마크** — 쿠키 기반 anon_id, D1 저장 | **P1B** |
 | 4 | **북마크 동네 한가해지면 Web Push 알림** (fallback: 모니터링 페이지 배지) | **P1B** |
 | 5 | **회원가입 + users 테이블** (Postgres) — 익명 → 식별 사용자 전환, 북마크 마이그레이션 | **P1B (Day 15)** |
-| 6 | **외부 가게 정보 보강** — 카카오/네이버 영업시간·별점 (places_external 테이블) | **P1B (Day 16)** |
+| 6 | **외부 가게 정보 보강** — 카카오맵 (평점) + 네이버지도 (가게이름 / 영업시간 / 영업상태 / 전화번호) 다중 출처 분리. attribution 분리 표시 의무 ("카카오맵 출처" / "네이버지도 출처"). 거버넌스 → `docs/governance/external_data_tos.md`. | **P1B (Day 16)** |
 | 7 | **동네 상세** — 평균 패턴, 도착 가능한 대중교통, 영업 중인 가게 | P2 |
 | 8 | **가게 상세** — 외부 별점(카카오/네이버, P1B Day 16 도입) + 자체 UGC 별점, 영업시간, "지금 영업 중" | P2 |
 | 9 | **메인 지도에 실시간 버스 흐름 오버레이** | P2 |
@@ -236,6 +236,7 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 | CI/CD | 없음 | 없음 | GitHub Actions | (동일) | (동일) |
 | 실서비스 | 시뮬레이터로 대체 | Kaggle | 공개 데모 URL | + **본인 운영 익명 실서비스** | + 회원 가입/UGC |
 | IaC | 없음 | 없음 | docker-compose | (동일) | + Terraform |
+| **k-skill / cafefinder reference 비교** (2026-05-19 추가) | (해당 없음) | (해당 없음) | (해당 없음 — proxy / frontend only 와 본 streaming 플랫폼은 사용 모델 자체가 다름) | **다중 출처 통합** (카카오 평점 + 네이버 영업, 두 backchannel 의 row 정합) — k-skill kakao-bar-nearby = 카카오 단일, cafefinder = frontend only. 두 reference 어디에도 없는 차별점. | (Phase 2 W2/W6/W8 진화 path → `docs/governance/external_data_tos.md` §5) |
 
 ## 12. 차별화 포인트 (면접 어필)
 
@@ -254,7 +255,7 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 
 > Day별 fallback 트리거 14종은 **design.md §9-1·§9-2** 단일 출처 참조. 본 절은 일반 원칙만.
 
-- **카카오맵·네이버지도 스크래핑 절대 금지**. ToS 위반 + 법적 분쟁 사례 다수.
+- **외부 가게 정보 출처 거버넌스 (P1B Day 16 도입 직전 확정, 2026-05-19 정정)** — P1A 시점까지 = 카카오맵·네이버지도 스크래핑 절대 금지 원칙 유지. P1B Day 16 = 다중 출처 (카카오 평점 + 네이버 영업) 의도적 채택 + ToS risk 인지 + 채용 기대 낮음 입장 + Phase 2 Google Places 대체안. rate limit / 캐싱 TTL / attribution 분리 표시 / fallback / Phase 2 진화 path 모두 `docs/governance/external_data_tos.md` 단일 출처 참조.
 - **개인정보 회피** — 행동 이벤트는 익명 ID(쿠키)만, IP 영구저장 없음, `/privacy` 1줄 처리방침 페이지 필수.
 - **Oracle Cloud Always Free 회수 정책** — 90일 미사용 시 회수. 카드 등록 후 PAYG 업그레이드(과금 없음)로 회수 방지.
 - **공공 API rate limit** — 토큰 키마다 한도 있음. 캐싱·백오프 필수.

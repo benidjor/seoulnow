@@ -287,7 +287,7 @@
 | 13 | **Web Push 알림** — 서비스워커 + push subscription을 D1에 저장 + Workers Cron이 DuckDB로 Iceberg 쿼리 → "북마크된 동네가 한가해짐" 감지 시 푸시 발신 | 알림 동작 |
 | 14 | `user.events.v1` 을 PyFlink로 처리해 Iceberg `fact_user_event` 적재 | `fact_user_event` 시간별 mart |
 | 15 | **회원가입 + Postgres `users`** (Phase 2 W1 → Phase 1B 당김). 익명 `anon_id` → 식별 `user_id` 전환. `user.events.v1` 의 `user_id` 채움 (forward compatibility 발휘). 로그인은 Phase 2. | `users` 테이블 + signup form + `place.users.cdc.v1` 토픽 |
-| 16 | **카카오 / 네이버 외부 가게 정보** (영업시간 + 별점). Google Places 대신 (한국 정확도 한계). `places_external` 테이블 + `chill_open_now` mart join. ToS risk 인지 + 채용 기대 낮음 입장 명시. | 외부 영업시간 + 별점 통합 |
+| 16 | **카카오맵 + 네이버지도 외부 가게 정보 (다중 출처 분리 정책, 2026-05-19 정정)**. 카카오맵 panel3 backchannel (NomaDamas kakao-bar-nearby skill 검증) = **평점** (rating / visitor_review_count / blog_review_count). 네이버지도 backchannel (endpoint = Day 16 진입 직전 결정) = **가게이름 / 영업시간 / 영업상태 / 전화번호**. `places_external` 18 컬럼 schema (place_id × source 복합키, SearchAPI Knowledge Graph form 차용). `chill_open_now` mart 다중 출처 join. attribution 분리 표시 의무 ("카카오맵 출처" / "네이버지도 출처"). 거버넌스 단일 출처 = `docs/governance/external_data_tos.md`. Google Places 는 Phase 2 W6 대체안. ToS risk 인지 + 채용 기대 낮음 입장 명시. | 외부 영업시간 + 평점 통합 (다중 출처) |
 | 17 | **혼잡도 분류 dbt mart `congestion_grade_5min`** (0.5d, `여유` / `보통` / `약간 붐빔` / `붐빔`) + **Apache Superset 단일 노드** dashboard (0.5d, 자치구별 혼잡도 등급 heatmap + `chill_open_now` count) | 등급 mart + Superset dashboard |
 | 18 | **Trino single-node** (0.5d, Iceberg connector + dbt-trino profile) + **강화 리포트 v2 작성** (0.5d, Phase 1A v1 의 7p → Phase 1A+1B v2 의 12-14p) | **체크포인트 2: 강화 버전 제출 (12-14p)** |
 
@@ -330,7 +330,7 @@ Cloudflare Pages Functions / Workers는 TCP 직접 연결이 제한적이므로,
 9. `user.events.v1` 처리 + 익명 ID 거버넌스 (Day 14 + `/privacy`)
 10. Phase 1B 트러블슈팅 (Web Push / D1 / Edge API → Kafka 등 Day 11~13 실측 이슈)
 11. 회원가입 단계적 진화 (Day 15 anon_id → user_id forward compatibility 발휘)
-12. 외부 가게 정보 도입 (카카오/네이버, Day 16) + ToS risk 입장
+12. 외부 가게 정보 도입 (카카오 평점 + 네이버 영업 다중 출처, Day 16) + ToS risk 입장 + reference 비교 (k-skill kakao-bar-nearby 차용 + cafefinder 차별화)
 13. 혼잡도 분류 mart + Superset 대시보드 (Day 17)
 14. Trino single-node + 운영 비용 갱신 (Day 18) + 본인 운영 실서비스 + 그 서비스의 데이터 플랫폼 통합 + Phase 2 로드맵
 
@@ -396,7 +396,7 @@ Cloudflare Pages Functions / Workers는 TCP 직접 연결이 제한적이므로,
 - **D1 5GB 한도**: D1엔 사용자 메타만. 행동 로그는 절대 D1에 넣지 않음.
 - **Oracle Cloud Always Free 회수**: 90일 미사용 회수 → PAYG 업그레이드(과금 없음)로 회피.
 - **공공 API rate limit**: 캐싱 + 백오프.
-- **카카오/네이버 스크래핑**: 절대 금지. 가게 정보는 공공 인허가 + (Phase 2) Google Places + UGC.
+- **외부 가게 정보 출처 거버넌스 (2026-05-19 정정)**: P1A 시점 = 카카오/네이버 스크래핑 절대 금지 + 공공 인허가만. **P1B Day 16 = 다중 출처 분리 정책** (카카오 panel3 backchannel = 평점 / 네이버지도 backchannel = 가게이름·영업시간·영업상태·전화번호). ToS risk 인지 + 채용 기대 낮음 입장. attribution 분리 표시 + rate limit + 캐싱 TTL + Phase 2 Google Places 대체안 = `docs/governance/external_data_tos.md` 단일 출처.
 
 ## 10. Day 0 사전 준비 체크리스트
 
