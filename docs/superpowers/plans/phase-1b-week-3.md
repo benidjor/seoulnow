@@ -672,7 +672,60 @@ CREATE TABLE places_external (
 | `(2.0, 3.0]` | `약간 붐빔` |
 | `> 3.0` | `붐빔` |
 
-자치구 단위 group by + 5min window. dbt test (등급 enum 검증 + 자치구 not_null).
+자치구 단위 group by + 5min window. dbt test (등급 enum 검증 + 자치구 not_null + 정합 검증).
+
+**mart schema 정교화 (kb-2 차용, NomaDamas kakao-bar-nearby skill 의 `meta.openNowCount` 패턴):**
+
+```sql
+-- dbt/seoul/models/marts/congestion_grade_5min.sql
+{{ config(materialized='table', file_format='iceberg') }}
+
+WITH base AS (
+  SELECT
+    g.window_start,
+    g.window_end,
+    g.district,
+    g.gu_code,
+    g.avg_congest_score,
+    g.max_congest_score,
+    g.area_count,
+    -- 신규 컬럼 (kb-2 차용)
+    (SELECT COUNT(*) FROM {{ ref('chill_open_now') }} c
+     WHERE c.district = g.district AND c.is_open_now = TRUE) AS open_now_count,
+    (SELECT COUNT(*) FROM {{ ref('chill_open_now') }} c
+     WHERE c.district = g.district AND c.is_open_now = TRUE
+       AND c.avg_congest_score <= 2) AS chill_open_count,
+    -- 등급 분류 (임계값 Option B SoT)
+    CASE
+      WHEN avg_congest_score <= 1.5 THEN '여유'
+      WHEN avg_congest_score <= 2.0 THEN '보통'
+      WHEN avg_congest_score <= 3.0 THEN '약간 붐빔'
+      ELSE '붐빔'
+    END AS congest_grade
+  FROM {{ ref('fact_hotspot_congestion_5min') }} g
+)
+SELECT * FROM base
+```
+
+**dbt test (정합 검증 추가):**
+
+```yaml
+- name: congestion_grade_5min
+  columns:
+    - name: congest_grade
+      tests:
+        - not_null
+        - accepted_values: { values: ['여유', '보통', '약간 붐빔', '붐빔'] }
+    - name: avg_congest_score
+      tests:
+        - dbt_utils.expression_is_true: { expression: ">= 1.0 AND avg_congest_score <= 4.0" }
+    - name: open_now_count
+      tests:
+        - dbt_utils.expression_is_true: { expression: ">= 0" }
+    - name: chill_open_count
+      tests:
+        - dbt_utils.expression_is_true: { expression: "<= open_now_count" }   # 정합 — chill ⊂ open
+```
 
 **임계값 SoT 정정 (2026-05-17, plan-update PR):** 본 plan 의 직전 임계값 가정 (`<25 / 25-50 / 50-75 / >=75`, 1-100 스케일) 은 silver 실측과 불일치. 정정 근거 3건:
 
@@ -686,7 +739,16 @@ CREATE TABLE places_external (
 
 **Files:** `infra/superset/Dockerfile` + `superset_config.py` + `docker-compose.yml` profile=`superset` 추가 + `infra/superset/README.md`.
 
-**골격:** Superset + DuckDB connector (Iceberg 직접 쿼리). 단일 dashboard: 자치구별 혼잡도 등급 heatmap (5min refresh) + `chill_open_now` mart count by 자치구.
+**골격:** Superset + DuckDB connector (Iceberg 직접 쿼리). **dashboard 4 tile** (kb-2 차용 시각화):
+
+| tile | 시각화 | 데이터 source | 의미 |
+|---|---|---|---|
+| 1 | 자치구별 혼잡도 등급 heatmap | `congestion_grade_5min.congest_grade` | 25 자치구 × 4 등급 색상 |
+| 2 | 자치구별 `open_now_count` bar chart (신규, kb-2) | `congestion_grade_5min.open_now_count` | "지금 영업 중" 가게 수 |
+| 3 | 자치구별 `chill_open_count` bar chart (신규, kb-2) | `congestion_grade_5min.chill_open_count` | "한가 + 영업 중" — 발화 의도 #2 직접 시각화 |
+| 4 | 등급별 자치구 개수 pie chart | `congestion_grade_5min.congest_grade` (group by) | 25 자치구 등급 분포 |
+
+5min refresh (4 tile 모두 동일 주기).
 
 **메모리 mitigation:** Day 17 작업 시작 직전 `docker compose stop airflow-scheduler` (700MB 회수) + Superset 작업 종료 후 재기동. Phase 1A Day 9 Spark 패턴 reuse.
 
