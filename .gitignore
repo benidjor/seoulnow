@@ -59,6 +59,9 @@ dbt/seoul/.user.yml
 scratch/
 tmp/
 
+# Personal reference notes (실값 박힌 secret reference, gitignored 의무)
+.local-notes/
+
 # Flink connector JARs (downloaded locally)
 infra/flink/jars/*.jar
 
