@@ -84,11 +84,81 @@ seoul-citydata-platform/
 
 ---
 
-## Day 11 — `user.events.v1` 토픽 + Cloudflare Edge API + Oracle Cloud HTTP receiver
+## Day 11 — `user.events.v1` 토픽 + Cloudflare Edge API + Oracle Cloud HTTP receiver + **Cloudflare Pages 자동 배포 + Next.js skeleton + 메인 지도 시각화**
 
-**목표 (spec §7-1, §7-2):** 브라우저 → Cloudflare Pages Functions Edge API → Cloudflare Tunnel → Oracle Cloud HTTP receiver (FastAPI) → Kafka `user.events.v1` 토픽 발행. 익명 ID 쿠키 UUID 발급 (1년 만료, IP 영구저장 X).
+**목표 (spec §7-1, §7-2 + 사용자 결정 2026-05-22):** 브라우저 → Cloudflare Pages Functions Edge API → Cloudflare Tunnel → Oracle Cloud HTTP receiver (FastAPI) → Kafka `user.events.v1` 토픽 발행. 익명 ID 쿠키 UUID 발급 (1년 만료, IP 영구저장 X). **+ 사용자 결정 2026-05-22 (친구 조언 채택, `[[deployment-automation-first]]` SoT)**: Task 11.0 신설 — Cloudflare Pages 자동 배포 (git push → 자동 build / deploy) + Next.js skeleton + 메인 지도 (혼잡도 + chill_open_now 마커) 흡수. Phase 1A 미완 deferred frontend deliverable (CLAUDE.md §6 화면 #1·#2) 동시 해소.
 
-> Day 11 본문 = plan-update commit 으로 상세 step 박힘 (Phase 1A Week 2 Task 9.3 / 10.3 점진적 작성 패턴 reuse, `[[airflow-decision]]` SoT). Task 11.1 (Edge API) + Task 11.2 (FastAPI receiver) + Task 11.3 (topic schema) 의 코드 골격 / TDD step / 검증 명령 / fallback 모두 명시.
+> Day 11 본문 = plan-update commit 으로 상세 step 박힘 (Phase 1A Week 2 Task 9.3 / 10.3 점진적 작성 패턴 reuse, `[[airflow-decision]]` SoT). **Task 11.0 (Pages 자동 배포 + Next.js + 지도)** + Task 11.1 (Edge API) + Task 11.2 (FastAPI receiver) + Task 11.3 (topic schema) 의 코드 골격 / TDD step / 검증 명령 / fallback 모두 명시.
+
+### Task 11.0: Cloudflare Pages 자동 배포 + Next.js skeleton + 메인 지도 (혼잡도 + chill_open_now) — NEW 2026-05-22
+
+**목표 (사용자 결정 2026-05-22 + 친구 조언 채택, `[[deployment-automation-first]]` SoT):** `git push origin main` → Cloudflare Pages 자동 build / 자동 배포 → `https://seoulnow.live` 에서 즉시 결과 확인. 매 commit 마다 ssh / 수동 재시작 없이 결과 확인 가능 (대안 D' SoT, ChatGPT 친구 조언과 정합). 동시에 Phase 1A 미완 deferred frontend (CLAUDE.md §6 화면 #1·#2) 흡수 — 서울 25 자치구 지도 + 혼잡도 등급 색상 + chill_open_now 가게 마커.
+
+**핵심 architectural 결정 (Day 11 implementation 첫 commit 전 사용자 결정 의무):** chill_open_now 데이터를 Cloudflare Pages Functions 가 어떻게 read 할지 — 4 옵션 trade-off:
+
+| 옵션 | 동작 | 장점 | 단점 |
+|---|---|---|---|
+| 1. Tunnel + DuckDB / Trino 실시간 쿼리 | Edge API → Tunnel → VM 의 Trino:8080 (Day 18 도입 예정) → Iceberg | 실시간성 ⭐⭐⭐⭐⭐, mart 사본 X | Day 18 Trino 의존 (선행 필요) — Day 11 시점 어려움 |
+| 2. Postgres sync (mart → Postgres) | dbt-postgres adapter 또는 별도 sync job 으로 5min 주기 mart 결과 → Postgres → Edge API 가 Postgres 쿼리 | 단순, Day 6 CDC 인프라 reuse | sync job 추가 운영 부담 |
+| 3. Cloudflare D1 sync (5min cron) | Workers Cron 이 5min 주기로 mart 결과 → D1 insert/upsert → Edge API 가 D1 query | edge 가까움, D1 5GB free 여유 | 5min 지연, 사용자 메타용 D1 에 분석 데이터 섞임 |
+| 4. 정적 JSON export | mart 결과를 5min 주기 JSON 파일로 export → R2 또는 Pages 정적 자산 → frontend fetch | 단순, 가장 빠름 | 갱신 지연, route 추가 어색 |
+
+**기본 권장 = 옵션 2 (Postgres sync)** — 친구 조언 (자동화 first) + Day 6 CDC 인프라 reuse + dbt-postgres adapter 셋업 30분. 옵션 1 (Trino) 은 Day 18 까지 미루고, 그 사이 옵션 2 로 진행 후 Day 18 에 옵션 1 로 전환 검토.
+
+**Files:**
+- Create: `frontend/package.json` (Next.js 15 + Tailwind + react-leaflet)
+- Create: `frontend/next.config.js` (Cloudflare Pages adapter — `@cloudflare/next-on-pages`)
+- Create: `frontend/app/page.tsx` (Next.js 15 App Router, 메인 지도 페이지)
+- Create: `frontend/app/layout.tsx`
+- Create: `frontend/components/CongestionMap.tsx` (서울 자치구 GeoJSON + react-leaflet)
+- Create: `frontend/components/ChillOpenMarker.tsx` (영업 중 가게 마커)
+- Create: `frontend/lib/chill-open-client.ts` (chill_open_now API fetch wrapper)
+- Create: `frontend/public/seoul-districts.geojson` (서울 25 자치구 폴리곤, 공공데이터 무료)
+- Create: `frontend/cloudflare-pages-functions/api/v1/chill-open-now/GET.ts` (mart read Edge API)
+- Delete: `frontend/index.html` (placeholder 제거, Next.js 가 인덱스 인계)
+- Create: `infra/dbt-postgres-sync/` 또는 `airflow/dags/mart_to_postgres.py` (옵션 2 채택 시 신규)
+- Modify: `infra/postgres/migrations/004_chill_open_now_view.sql` 신규 (옵션 2)
+
+**Goal:**
+1. **Cloudflare Pages 자동 배포 셋업** (Cloudflare dashboard):
+   - GitHub repo `seoul-citydata-platform` 연결
+   - Production branch = `main`, Preview branch = `phase-1b/*`
+   - Build settings: Framework = "Next.js", Build command = `npx @cloudflare/next-on-pages@1`, Build output = `.vercel/output/static`, Root directory = `frontend`
+   - Environment variables = (Task 11.1 의 secret 추가 시점에 등록)
+2. **Next.js 15 skeleton**: App Router + Tailwind + react-leaflet (지도 라이브러리)
+3. **서울 자치구 지도**: GeoJSON 정적 로딩 + 25 자치구 폴리곤 표시
+4. **혼잡도 색상 mapping**: Day 17 의 `congestion_grade_5min` mart 가 아직 없으므로 임시로 `fact_hotspot_congestion_5min.avg_congest_score` 직접 사용 + 자치구 평균 산출 (Day 17 에서 mart 전환). 색상 = `여유=#28a745 / 보통=#ffc107 / 약간 붐빔=#fd7e14 / 붐빔=#dc3545`
+5. **chill_open_now 마커**: 자치구 클릭 시 해당 구 의 "지금 영업 + 마감 1h+ + avg_congest_score ≤ 2" 가게 마커 표시
+6. **`git push` → 자동 배포 검증**: 임의 commit push 후 Cloudflare Pages dashboard 빌드 로그 확인 + `https://seoulnow.live` 즉시 반영
+
+**TDD 단계 (frontend pure 함수 우선):**
+- Step 1: 실패 테스트 작성
+  - `frontend/lib/__tests__/chill-open-client.test.ts` — `mapCongestScoreToGrade(2.3)` → `'약간 붐빔'` 등 4 case
+  - `frontend/components/__tests__/CongestionMap.test.tsx` — 25 자치구 폴리곤 렌더링 (vitest + @testing-library/react)
+- Step 2: 테스트 fail 확인 (`cd frontend && npm test`)
+- Step 3: lib / 컴포넌트 본문 작성
+- Step 4: 테스트 PASS (4 + N PASS)
+- Step 5: 로컬 `wrangler pages dev` 또는 `npm run dev` 로 브라우저 확인
+- Step 6: `git push origin main` → Cloudflare Pages 자동 배포 → `https://seoulnow.live` 확인
+
+**검증:**
+- (a) `cd frontend && npm test` → PASS
+- (b) `cd frontend && npm run build` 로컬 SUCCESS
+- (c) Cloudflare Pages dashboard 빌드 로그 SUCCESS (~1-2min)
+- (d) `https://seoulnow.live` 접속 → 서울 지도 + 25 자치구 혼잡도 색상 + 자치구 클릭 시 chill_open 마커 표시
+- (e) 임의 변경 (예: 색상 hex 수정) 후 `git push` → 자동 배포 (~1-2min) → 변경 사항 반영 확인 (**친구 조언 부합 path 의 핵심 검증**)
+- (f) Preview branch (예: `phase-1b/day-11-task-11.0`) push 시 `*.seoulnow.pages.dev` Preview URL 자동 생성 확인
+
+**fallback:**
+- 옵션 2 (Postgres sync) 30분 초과 → 옵션 4 (정적 JSON export, 5min cron) 임시 채택
+- Cloudflare Pages 빌드 실패 시 — `@cloudflare/next-on-pages` 호환성 issue 일 가능성 → Next.js 15 static export (`output: 'export'`) 로 단순화
+- chill_open_now mart 데이터 없으면 — Phase 1A docker compose 재기동 + producer 5분 polling 1 cycle 대기 + dbt run 으로 mart 재생성
+
+**의존 / 영향 (중요):**
+- **본 Task 가 Task 11.1/11.2/11.3 의 frontend 인프라 토대** — 11.0 먼저 셋업 후 11.1 진행 의무
+- Day 12 BookmarkButton, Day 13 PushSubscribe, Day 15 SignupForm 모두 본 Task 의 frontend 골격 위에 추가
+- Phase 1A 미완 frontend deliverable (CLAUDE.md §6 화면 #1·#2) 흡수 → Phase 1A `phase1a_v1.md` 의 deferred 상태 해소
+- 옵션 2 채택 시 Day 6 CDC 인프라 reuse (Postgres) — `dim_place` SCD2 골격과 분리 (별도 view / table)
 
 ### Task 11.1: Cloudflare Pages Functions Edge API + anon_id 쿠키
 
@@ -358,13 +428,14 @@ http-receiver:
 
 ---
 
-### Day 11 종료 게이트 (3 task 통합)
+### Day 11 종료 게이트 (4 task 통합)
 
+- [ ] **Task 11.0** — `cd frontend && npm test` PASS + `npm run build` SUCCESS + Cloudflare Pages 빌드 로그 SUCCESS + `https://seoulnow.live` 에 서울 지도 + 혼잡도 색상 + chill_open 마커 표시 + **임의 commit push → 자동 배포 반영 확인 (친구 조언 부합 검증)**
 - [ ] Task 11.1 — `curl` smoke 200 + Set-Cookie 헤더 + 두 번째 호출 reuse
 - [ ] Task 11.2 — pytest 3 PASS + Kafka consumer 1건 수신
 - [ ] Task 11.3 — pytest 2 PASS + 토픽 partitions=6 + 30일 retention
 - [ ] end-to-end smoke — 브라우저 → Pages Functions → Tunnel → receiver → Kafka 1 row + payload schema 일치
-- [ ] `docs/runbook/day-11-edge-api.md` 작성 (운영 절차 + 환경 편차 + Cloudflare Tunnel secret 발급 단계)
+- [ ] `docs/runbook/day-11-edge-api.md` 작성 (운영 절차 + 환경 편차 + Cloudflare Tunnel secret 발급 단계 + **Cloudflare Pages 자동 배포 운영 절차**)
 
 ---
 
