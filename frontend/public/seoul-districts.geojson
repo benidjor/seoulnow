@@ -1,0 +1,49 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "_placeholder": true,
+    "_note": "5 sample districts as rectangles. Replace with real Seoul 25-district polygon GeoJSON before production. See frontend/public/README.md for source."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "SIG_KOR_NM": "강남구" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[127.025, 37.495], [127.085, 37.495], [127.085, 37.530], [127.025, 37.530], [127.025, 37.495]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "SIG_KOR_NM": "마포구" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[126.890, 37.545], [126.960, 37.545], [126.960, 37.580], [126.890, 37.580], [126.890, 37.545]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "SIG_KOR_NM": "종로구" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[126.965, 37.565], [127.020, 37.565], [127.020, 37.605], [126.965, 37.605], [126.965, 37.565]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "SIG_KOR_NM": "성동구" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[127.020, 37.540], [127.080, 37.540], [127.080, 37.575], [127.020, 37.575], [127.020, 37.540]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "SIG_KOR_NM": "용산구" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[126.960, 37.520], [127.020, 37.520], [127.020, 37.555], [126.960, 37.555], [126.960, 37.520]]]
+      }
+    }
+  ]
+}
