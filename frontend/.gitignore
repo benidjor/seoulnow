@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.vercel/
+.wrangler/
+out/
+*.log
+.env*.local
+.DS_Store
+coverage/
