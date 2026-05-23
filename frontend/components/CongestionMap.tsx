@@ -16,11 +16,16 @@ interface DistrictRecord {
   avg_congest_score?: number;
 }
 
+/**
+ * 자치구별 혼잡도 등급 Map. 입력은 **전체 자치구 혼잡도** (hotspots,
+ * `/api/hotspots`) — 전체 등급(여유~붐빔) 포함. chill_open_now (한가 가게만) 가
+ * 아니다. district 당 1행이면 그 값, 여러 행이면 평균.
+ */
 export function computeDistrictGradeMap(
-  places: DistrictRecord[],
+  records: DistrictRecord[],
 ): Map<string, CongestGrade> {
   const bucket = new Map<string, number[]>();
-  for (const p of places) {
+  for (const p of records) {
     if (!p.district) continue;
     const score = p.avg_congest_score;
     if (typeof score !== "number") continue;
@@ -38,7 +43,9 @@ export function computeDistrictGradeMap(
 
 interface CongestionMapProps {
   districts: FeatureCollection<Geometry, { name?: string; SIG_KOR_NM?: string }>;
-  places: ChillOpenPlace[];
+  /** 전체 자치구 혼잡도 (지도 색상 source). `{district, avg_congest_score}` shape. */
+  districtCongestion: DistrictRecord[];
+  /** 선택 자치구의 한가+영업 가게 마커. */
   visibleMarkers: ChillOpenPlace[];
   onDistrictClick?: (district: string) => void;
 }
@@ -53,11 +60,14 @@ function pickDistrictName(
 
 export default function CongestionMap({
   districts,
-  places,
+  districtCongestion,
   visibleMarkers,
   onDistrictClick,
 }: CongestionMapProps) {
-  const gradeMap = useMemo(() => computeDistrictGradeMap(places), [places]);
+  const gradeMap = useMemo(
+    () => computeDistrictGradeMap(districtCongestion),
+    [districtCongestion],
+  );
 
   const styleFn = (feature?: Feature): PathOptions => {
     if (!feature) return { fillColor: "#9ca3af", color: "#374151", weight: 1, fillOpacity: 0.55 };

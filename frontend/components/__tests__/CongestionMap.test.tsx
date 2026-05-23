@@ -19,14 +19,15 @@ vi.mock("react-leaflet", () => ({
 }));
 
 describe("computeDistrictGradeMap", () => {
-  it("place 데이터 자치구별 평균 congest_score → grade enum", () => {
-    const places = [
+  it("자치구 혼잡도(전체 등급) → grade enum — 붐빔 자치구도 색칠됨", () => {
+    const districtCongestion = [
       { district: "강남구", avg_congest_score: 1.0 },
       { district: "강남구", avg_congest_score: 2.0 },
       { district: "마포구", avg_congest_score: 3.5 },
     ];
-    const result = computeDistrictGradeMap(places);
+    const result = computeDistrictGradeMap(districtCongestion);
     expect(result.get("강남구")).toBe("보통");
+    // 원인 B 회귀 방지: 붐빔(>2) 자치구도 회색이 아니라 붐빔으로 색칠.
     expect(result.get("마포구")).toBe("붐빔");
   });
 
@@ -36,11 +37,11 @@ describe("computeDistrictGradeMap", () => {
   });
 
   it("district undefined row 무시", () => {
-    const places = [
+    const records = [
       { district: "강남구", avg_congest_score: 1.0 },
       { avg_congest_score: 2.0 },
     ] as Array<{ district?: string; avg_congest_score?: number }>;
-    const result = computeDistrictGradeMap(places);
+    const result = computeDistrictGradeMap(records);
     expect(result.size).toBe(1);
     expect(result.get("강남구")).toBe("여유");
   });
