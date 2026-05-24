@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -16,29 +17,46 @@ pytest.importorskip("pyiceberg")
 
 
 def test_catalog_is_thread_local():
-    """서로 다른 스레드는 서로 다른 catalog 인스턴스를 받는다."""
+    """서로 다른 스레드는 서로 다른 catalog 인스턴스를 받고, 같은 스레드는 재사용한다.
+
+    Barrier 로 N개 워커가 동시에 catalog() 에 진입하도록 강제 — trivial 작업에서
+    ThreadPoolExecutor 가 단일 스레드를 재사용해 인스턴스가 1개로 줄어드는 비결정성
+    제거. 진짜 process-singleton(lru_cache)이면 N개 스레드가 같은 인스턴스를 받아
+    distinct 수가 1이 되므로, 본 테스트가 thread-local 과 singleton 을 구별한다.
+    """
     from api import deps
 
+    n = 4
+    barrier = threading.Barrier(n)
     created: list[object] = []
+    lock = threading.Lock()
 
     def _fake_build():
-        c = MagicMock(name=f"catalog-{len(created)}")
-        created.append(c)
+        c = MagicMock()
+        with lock:
+            created.append(c)
         return c
+
+    def _worker(_: int) -> tuple[int, int]:
+        barrier.wait()  # N개 스레드가 동시에 살아있도록 강제
+        first = deps.catalog()
+        second = deps.catalog()  # 같은 스레드 재호출 → 동일 인스턴스여야
+        return id(first), id(second)
 
     with patch.object(deps, "build_catalog", side_effect=_fake_build):
         # thread-local 초기화 (이전 테스트 잔여 제거)
         if hasattr(deps._tls, "catalog"):
             del deps._tls.catalog
 
-        seen = []
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            seen = list(ex.map(lambda _: id(deps.catalog()), range(4)))
+        with ThreadPoolExecutor(max_workers=n) as ex:
+            results = list(ex.map(_worker, range(n)))
 
-    # 4개 스레드 → 최대 4개 distinct 인스턴스 (스레드 재사용 시 줄 수 있으나 1개는 아님)
-    assert len(set(seen)) >= 2
-    # 같은 스레드 안 재호출은 재사용 (build 횟수 == distinct 인스턴스 수)
-    assert len(created) == len(set(id(c) for c in created))
+    # N개 스레드 → N개 distinct 인스턴스 (singleton 이면 1)
+    assert len({first for first, _ in results}) == n
+    # 같은 스레드 안 재호출은 동일 인스턴스 (thread-local 재사용)
+    assert all(first == second for first, second in results)
+    # build 는 스레드당 정확히 1회
+    assert len(created) == n
 
 
 def test_duck_cursor_calls_cursor():
