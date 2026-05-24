@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from api.deps import duck_connection, gold_table_paths
+from api.deps import duck_cursor, gold_table_paths
 from api.lib_chill import is_open_now
 from platform_common import get_settings
 
@@ -60,7 +60,7 @@ def chill_open() -> dict[str, Any]:
         f"s3://{s.iceberg_warehouse_bucket}/warehouse/bronze/places_static_v1/data.parquet"
     )
 
-    con = duck_connection()
+    con = duck_cursor()
     rows = con.execute(
         """
         WITH district_score AS (
