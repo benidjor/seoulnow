@@ -2421,7 +2421,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "rpds-py" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-23-seoul-citydata-platform-dbt' and extra == 'extra-23-seoul-citydata-platform-flink')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/22/f5/df4e9027acead3ecc63e50fe1e36aca1523e1719559c499951bb4b53188f/referencing-0.37.0.tar.gz", hash = "sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8", size = 78036, upload-time = "2025-10-13T15:30:48.871Z" }
 wheels = [
@@ -2752,6 +2752,7 @@ dbt = [
     { name = "dbt-duckdb" },
 ]
 dev = [
+    { name = "jsonschema" },
     { name = "mypy", version = "1.19.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-23-seoul-citydata-platform-dbt'" },
     { name = "mypy", version = "1.20.2", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-23-seoul-citydata-platform-flink' or extra != 'extra-23-seoul-citydata-platform-dbt'" },
     { name = "pytest" },
@@ -2774,6 +2775,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.21" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
