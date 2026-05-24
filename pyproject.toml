@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "respx>=0.21",
+    # Task 11.3 — user.events.v1 JSON Schema (Draft 2020-12) 검증 테스트용.
+    # receiver 런타임은 pydantic 으로 검증하므로 test-only dependency.
+    "jsonschema>=4.21",
 ]
 # dbt: PyFlink 1.20 transitive apache-beam 2.48 의 protobuf 범위
 # (protobuf<4.24) 와 dbt-core>=1.9 의 protobuf 요구가 dev+flink 동시 sync 시

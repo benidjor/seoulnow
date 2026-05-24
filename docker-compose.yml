@@ -297,6 +297,27 @@ services:
       timeout: 5s
       retries: 18
 
+  # Phase 1B Day 11 (Task 11.2) — Edge API → Kafka REST Proxy receiver.
+  # profile=receiver 로 평상시 미기동 (Phase 1B 작업/스모크 시에만 기동).
+  # KAFKA_BOOTSTRAP_SERVERS = kafka:29092 (INTERNAL listener) — docker network
+  # 안 컨테이너는 EXTERNAL(localhost:9092) 사용 시 self-loopback 으로 깨짐
+  # (kafka 서비스 listener 주석 참고). kafka-connect 와 동일 규칙.
+  # 외부(공개) 노출은 Cloudflare Tunnel 이 담당하고, 호스트 포트는 로컬
+  # 스모크용으로 127.0.0.1 에만 바인딩한다 (공개 0.0.0.0 바인딩 X).
+  http-receiver:
+    build: ./infra/http-receiver
+    image: scp/http-receiver:0.1
+    container_name: scp-http-receiver
+    profiles: ["receiver"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      RECEIVER_TOKEN: ${RECEIVER_TOKEN}
+    ports:
+      - "127.0.0.1:8400:8400"
+
   # Day 9 전용. profile=spark 로 평상시 미기동 (24GB 메모리 한계 — spec §9-3).
   # 일시 기동 직전 `docker compose stop airflow-scheduler` 로 ~800MB 회수 후
   # `docker compose --profile spark up -d spark` → MERGE INTO/Compaction 후

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seoul-citydata.pages.dev/schemas/user_events_v1.json",
+  "title": "user.events.v1",
+  "type": "object",
+  "required": ["event_id", "event_ts", "anon_id", "event_type"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_ts": { "type": "string", "format": "date-time" },
+    "ingest_ts": { "type": "string", "format": "date-time", "description": "receiver 가 Kafka header 로 채움" },
+    "anon_id": { "type": "string", "format": "uuid" },
+    "user_id": { "type": ["string", "null"], "format": "uuid", "description": "Day 15 회원가입 후 채워짐, forward compatibility" },
+    "session_id": { "type": ["string", "null"], "maxLength": 64 },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "map_view", "hotspot_click", "district_filter",
+        "bookmark_add", "bookmark_remove",
+        "push_subscribe", "push_unsubscribe",
+        "privacy_view", "signup_complete"
+      ]
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "maxLength": 256 },
+        "referrer": { "type": ["string", "null"], "maxLength": 256 }
+      }
+    },
+    "client": {
+      "type": "object",
+      "properties": {
+        "ua_hash": { "type": "string", "description": "salted SHA-256, IP 영구저장 X" },
+        "viewport": { "type": "object", "properties": { "w": { "type": "integer" }, "h": { "type": "integer" } } }
+      }
+    },
+    "properties": { "type": ["object", "null"], "description": "event_type 별 가변 schema" }
+  },
+  "additionalProperties": false
+}

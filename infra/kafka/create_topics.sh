@@ -25,8 +25,9 @@ create_topic "seoul.hotspot.congestion.v1" 3 604800000   # 7d
 create_topic "seoul.transit.subway.v1"     6 259200000   # 3d  (트래픽 많음)
 create_topic "place.master.cdc.v1"         1 2592000000  # 30d (Day 6 에서 사용)
 
-# Phase 1B 에서 사용 — 스켈레톤만 미리 생성해 둔다
-create_topic "user.events.v1"              3 604800000   # 7d
+# Phase 1B Day 11 (Task 11.2/11.3) — 익명 사용자 행동 이벤트.
+# 트래픽 + replay 여유로 partitions=6, 30일 retention (spec §7 / plan Task 11.3).
+create_topic "user.events.v1"              6 2592000000  # 30d
 
 echo
 echo "== topic list =="
