@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from api.deps import duck_connection, gold_table_paths, silver_table_paths
+from api.deps import duck_cursor, gold_table_paths, silver_table_paths
 
 router = APIRouter(prefix="/api", tags=["hotspots"])
 
@@ -35,7 +35,7 @@ def list_hotspots() -> dict[str, Any]:
     if not paths:
         return {"items": [], "count": 0}
 
-    con = duck_connection()
+    con = duck_cursor()
     rows = con.execute(
         """
         WITH latest AS (
@@ -76,7 +76,7 @@ def list_areas() -> dict[str, Any]:
     if not paths:
         return {"items": [], "count": 0}
 
-    con = duck_connection()
+    con = duck_cursor()
     rows = con.execute(
         """
         WITH latest AS (

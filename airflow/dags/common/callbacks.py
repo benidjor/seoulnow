@@ -62,6 +62,10 @@ def send_compaction_report(**context: Any) -> None:
     검사로 string 시 json.loads, dict 시 그대로 (backward compat 보장 —
     unit test 의 dict mock 도 PASS).
 
+    Task 11.1a — multi-table payload 지원. {"tables":[{table,files,bytes,snapshots},...]}
+    형태와 단일 dict {table,files,...} 형태 모두 수용 (backward compat 유지).
+    테이블별 reduction 라인을 하나의 리포트로 집계.
+
     webhook 미설정 / XCom None 둘 다 stdout fallback (no exception).
     """
     ti = context["task_instance"]
@@ -81,19 +85,25 @@ def send_compaction_report(**context: Any) -> None:
         log.error("XCom JSON parse fail: before=%s after=%s err=%s", before_raw, after_raw, exc)
         return
 
-    file_reduction = (
-        (before["files"] - after["files"]) / before["files"] * 100 if before["files"] else 0.0
-    )
-    byte_change = after["bytes"] - before["bytes"]
+    # multi-table {"tables":[...]} 와 단일 dict {table,files,...} 둘 다 수용.
+    def _as_tables(payload: dict) -> list[dict]:
+        return payload["tables"] if isinstance(payload, dict) and "tables" in payload else [payload]
 
-    table = before.get("table", "unknown")
-    msg = (
-        f"Iceberg compaction report — `{table}`\n"
-        f"  files: {before['files']} → {after['files']} "
-        f"({file_reduction:.1f}% 감소)\n"
-        f"  bytes: {before['bytes']:,} → {after['bytes']:,} ({byte_change:+,})\n"
-        f"  snapshots: {before['snapshots']} → {after['snapshots']}"
-    )
+    before_by = {t["table"]: t for t in _as_tables(before)}
+    after_by = {t["table"]: t for t in _as_tables(after)}
+
+    lines = ["Iceberg compaction report"]
+    for table, b in before_by.items():
+        a = after_by.get(table)
+        if not a:
+            continue
+        reduction = (b["files"] - a["files"]) / b["files"] * 100 if b["files"] else 0.0
+        lines.append(
+            f"  `{table}`: files {b['files']} → {a['files']} ({reduction:.1f}% 감소), "
+            f"bytes {b['bytes']:,} → {a['bytes']:,}, "
+            f"snapshots {b['snapshots']} → {a['snapshots']}"
+        )
+    msg = "\n".join(lines)
 
     webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
     if not webhook:

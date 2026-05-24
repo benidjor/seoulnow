@@ -12,9 +12,9 @@ Day 9 PR γ commit 4 — Option B 채택. PythonOperator (in-process) → BashOp
   같은 dep 우회.
 
 호출 패턴 (Airflow BashOperator bash_command):
-    /opt/airflow/dbt-venv/bin/python /opt/airflow/dags/common/capture_metrics.py <table>
+    /opt/airflow/dbt-venv/bin/python /opt/airflow/dags/common/capture_metrics.py <table> [<table> ...]
 
-stdout 마지막 line = JSON dict. Airflow BashOperator 의 `do_xcom_push=True` 가
+stdout 마지막 line = JSON {"tables":[...]}. Airflow BashOperator 의 `do_xcom_push=True` 가
 stdout 마지막 line 을 XCom 으로 push. post_compaction_report task 가 XCom pull
 후 `json.loads` 로 dict 복원.
 
@@ -28,29 +28,35 @@ import json
 import sys
 
 
-def main(table: str) -> None:
-    """Iceberg table 메트릭 측정 + JSON stdout."""
+def _build_catalog():
+    """test 가 patch 할 수 있도록 분리한 indirection."""
     from flink_jobs.lib.duckdb_iceberg import build_catalog
 
-    catalog = build_catalog()
+    return build_catalog()
+
+
+def _table_metrics(catalog, table: str) -> dict:
+    """단일 table 의 files / bytes / snapshots 측정 → dict 반환."""
     iceberg_table = catalog.load_table(table)
     files = list(iceberg_table.scan().plan_files())
-    n_files = len(files)
-    total_bytes = sum(f.file.file_size_in_bytes for f in files)
-    n_snapshots = len(list(iceberg_table.snapshots()))
-
-    metrics = {
+    return {
         "table": table,
-        "files": n_files,
-        "bytes": total_bytes,
-        "snapshots": n_snapshots,
+        "files": len(files),
+        "bytes": sum(f.file.file_size_in_bytes for f in files),
+        "snapshots": len(list(iceberg_table.snapshots())),
     }
+
+
+def main(tables: list[str]) -> None:
+    """N개 Iceberg table 메트릭 측정 + JSON stdout ({"tables":[...]})."""
+    catalog = _build_catalog()
+    payload = {"tables": [_table_metrics(catalog, t) for t in tables]}
     # Airflow BashOperator do_xcom_push=True 는 stdout 의 마지막 line 을 XCom push
-    print(json.dumps(metrics))
+    print(json.dumps(payload))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <table>", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <table> [<table> ...]", file=sys.stderr)
         sys.exit(1)
-    main(sys.argv[1])
+    main(sys.argv[1:])

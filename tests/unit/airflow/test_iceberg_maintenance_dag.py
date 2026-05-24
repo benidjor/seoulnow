@@ -67,25 +67,20 @@ def test_dag_schedule_active():
     assert "0 3" in str(schedule)
 
 
-def test_dag_has_six_tasks():
-    """task 6개 (rewrite_dim_place 제거 후, 사용자 결정 A1).
-
-    TaskGroup 안 task 의 task_id 는 group 이름으로 prefix 됨
-    (`rewrite.rewrite_silver_hotspot_congestion`).
-    """
+def test_dag_has_seven_tasks():
+    """task 7개 — silver + gold rewrite child 병렬 (gold 복원, Task 11.1-A)."""
     from iceberg_maintenance import dag  # type: ignore
 
     task_ids = sorted(t.task_id for t in dag.tasks)
-    # A2 rename — TaskGroup `rewrite` prefix
     assert "rewrite.rewrite_silver_hotspot_congestion" in task_ids
-    assert "rewrite_dim_place" not in task_ids  # A1 제거
-    assert "rewrite.rewrite_dim_place" not in task_ids  # A1 제거 (group prefix 형태도)
+    assert "rewrite.rewrite_gold_fact_hotspot_congestion" in task_ids  # 신규 (gold 복원)
+    assert "rewrite_dim_place" not in task_ids  # 여전히 Phase 2
     assert "snapshot_metrics_before" in task_ids
     assert "snapshot_metrics_after" in task_ids
     assert "expire_snapshots" in task_ids
     assert "remove_orphan_files" in task_ids
     assert "post_compaction_report" in task_ids
-    assert len(dag.tasks) == 6
+    assert len(dag.tasks) == 7
 
 
 def test_rewrite_task_uses_bash_operator_with_docker_run():
@@ -121,6 +116,7 @@ def test_metrics_tasks_use_bash_operator_with_dbt_venv():
         assert "/opt/airflow/dbt-venv/bin/python" in task.bash_command
         assert "capture_metrics.py" in task.bash_command
         assert "silver.hotspot_congestion" in task.bash_command
+        assert "gold.fact_hotspot_congestion_5min" in task.bash_command  # 신규 (Task 11.1-A)
         assert task.do_xcom_push is True
 
 
@@ -227,3 +223,51 @@ def test_send_compaction_report_parses_json_string():
     with patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": ""}, clear=False):
         send_compaction_report(task_instance=ti)
     # exception 0건 = PASS
+
+
+def test_send_compaction_report_multi_table():
+    """{"tables":[...]} payload → 테이블별 reduction 라인 (gold + silver)."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from common.callbacks import send_compaction_report  # type: ignore
+
+    ti = MagicMock()
+    ti.xcom_pull.side_effect = [
+        json.dumps({"tables": [
+            {"table": "silver.hotspot_congestion", "files": 6, "bytes": 30_000_000, "snapshots": 10},
+            {"table": "gold.fact_hotspot_congestion_5min", "files": 9161, "bytes": 9_900_000, "snapshots": 3314},
+        ]}),
+        json.dumps({"tables": [
+            {"table": "silver.hotspot_congestion", "files": 6, "bytes": 30_000_000, "snapshots": 5},
+            {"table": "gold.fact_hotspot_congestion_5min", "files": 8, "bytes": 9_900_000, "snapshots": 5},
+        ]}),
+    ]
+    with patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": ""}, clear=False):
+        send_compaction_report(task_instance=ti)
+    # exception 0건 = 핵심 PASS 조건
+
+
+def test_gold_rewrite_task_uses_compaction_gold_job():
+    """rewrite_gold_fact_hotspot_congestion = BashOperator + docker run + compaction_gold.py."""
+    from airflow.operators.bash import BashOperator
+    from iceberg_maintenance import dag  # type: ignore
+
+    task = dag.get_task("rewrite.rewrite_gold_fact_hotspot_congestion")
+    assert isinstance(task, BashOperator)
+    assert "docker run --rm" in task.bash_command
+    assert "scp/spark:3.5.3-iceberg" in task.bash_command
+    assert "compaction_gold.py" in task.bash_command
+    assert "scp_default" in task.bash_command
+
+
+def test_expire_snapshots_activated():
+    """expire_snapshots 가 echo placeholder 아닌 실제 spark-submit (Day 9 A3 해제)."""
+    from airflow.operators.bash import BashOperator
+    from iceberg_maintenance import dag  # type: ignore
+
+    task = dag.get_task("expire_snapshots")
+    assert isinstance(task, BashOperator)
+    assert "echo" not in task.bash_command
+    assert "expire_snapshots.py" in task.bash_command
+    assert "docker run --rm" in task.bash_command

@@ -5,17 +5,21 @@ Day 5 Task 5.8 buffer 의 echo placeholder 7개 → 본격 활성 (6개로 reduc
 - snapshot_metrics_before/after = BashOperator + dbt-venv subprocess
   (Option B 채택, commit 4) — dbt_full_run.py 의 BashOperator + dbt-venv 패턴
   reuse. Airflow 기본 venv 의 duckdb / pyiceberg 미설치 회피.
+  **Task 11.1-A 변경**: silver + gold 2 table 동시 측정 (SILVER_TABLE GOLD_TABLE).
 - rewrite_silver_hotspot_congestion = BashOperator + docker run scp/spark +
   spark-submit compaction_silver.py
+- **rewrite_gold_fact_hotspot_congestion (Task 11.1-A 신규)** = BashOperator +
+  docker run scp/spark + spark-submit compaction_gold.py (gold rewrite child 복원).
 - post_compaction_report = PythonOperator + XCom pull + send_compaction_report
   (Discord webhook + stdout fallback)
-- expire_snapshots + remove_orphan_files = echo placeholder 유지 (Day 10 또는
-  Phase 2 본격)
+- expire_snapshots = **실 spark-submit 활성화 (Day 9 A3 해제, Task 11.1-A)**
+  spark-submit expire_snapshots.py (older_than 7d)
+- remove_orphan_files = echo placeholder 유지 (Phase 2 본격)
 
 본진 기능 (spec §5-8 표 2행):
 
-- 병렬 실행 — TaskGroup `rewrite` (현재 single child, P1B 후 rewrite_user_event
-  추가 시 병렬 발휘).
+- 병렬 실행 — TaskGroup `rewrite` (silver + gold 2 child 병렬, P1B 후
+  rewrite_user_event 추가 시 3-way).
 - `max_active_tis_per_dag=3` — Spark concurrent submit 제한.
 - XCom — before/after 메트릭 (files / bytes / snapshots, JSON string).
 - on_failure_callback — `send_discord_alert` (Discord webhook + stdout
@@ -70,6 +74,7 @@ from common.callbacks import send_compaction_report, send_discord_alert
 from airflow import DAG
 
 SILVER_TABLE = "silver.hotspot_congestion"
+GOLD_TABLE = "gold.fact_hotspot_congestion_5min"
 SPARK_IMAGE = "scp/spark:3.5.3-iceberg"
 SPARK_NETWORK = "scp_default"  # compose project name `scp` SoT (docker-compose.yml L1)
 
@@ -108,7 +113,7 @@ with DAG(
 ) as dag:
     snapshot_metrics_before = BashOperator(
         task_id="snapshot_metrics_before",
-        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE}",
+        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE} {GOLD_TABLE}",
         env=metrics_env,
         append_env=True,
         do_xcom_push=True,
@@ -136,12 +141,38 @@ with DAG(
             max_active_tis_per_dag=3,
         )
 
+        rewrite_gold_fact_hotspot_congestion = BashOperator(
+            task_id="rewrite_gold_fact_hotspot_congestion",
+            bash_command=(
+                "set -e\n"
+                "docker run --rm "
+                f"--network {SPARK_NETWORK} "
+                "-v ${PROJECT_ROOT}/infra/spark/conf:/opt/spark/conf:ro "
+                "-v ${PROJECT_ROOT}/infra/spark/jobs:/workspace/jobs:ro "
+                "-e AWS_ACCESS_KEY_ID=minioadmin "
+                "-e AWS_SECRET_ACCESS_KEY=minioadmin "
+                "-e AWS_REGION=us-east-1 "
+                f"{SPARK_IMAGE} "
+                "/opt/spark/bin/spark-submit /workspace/jobs/compaction_gold.py\n"
+            ),
+            max_active_tis_per_dag=3,
+        )
+
     expire_snapshots = BashOperator(
         task_id="expire_snapshots",
         bash_command=(
-            "echo '[Day 9 placeholder] expire_snapshots older_than 7d "
-            "(Day 10 또는 Phase 2 본격 활성)'"
+            "set -e\n"
+            "docker run --rm "
+            f"--network {SPARK_NETWORK} "
+            "-v ${PROJECT_ROOT}/infra/spark/conf:/opt/spark/conf:ro "
+            "-v ${PROJECT_ROOT}/infra/spark/jobs:/workspace/jobs:ro "
+            "-e AWS_ACCESS_KEY_ID=minioadmin "
+            "-e AWS_SECRET_ACCESS_KEY=minioadmin "
+            "-e AWS_REGION=us-east-1 "
+            f"{SPARK_IMAGE} "
+            "/opt/spark/bin/spark-submit /workspace/jobs/expire_snapshots.py\n"
         ),
+        max_active_tis_per_dag=3,
     )
 
     remove_orphan_files = BashOperator(
@@ -154,7 +185,7 @@ with DAG(
 
     snapshot_metrics_after = BashOperator(
         task_id="snapshot_metrics_after",
-        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE}",
+        bash_command=f"{DBT_VENV_PYTHON} {CAPTURE_METRICS_SCRIPT} {SILVER_TABLE} {GOLD_TABLE}",
         env=metrics_env,
         append_env=True,
         do_xcom_push=True,
