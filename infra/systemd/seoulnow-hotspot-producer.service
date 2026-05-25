@@ -1,0 +1,16 @@
+[Unit]
+Description=seoulnow hotspot producer (citydata 5min polling)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/seoulnow
+EnvironmentFile=/home/ubuntu/seoulnow/.env
+ExecStart=/home/ubuntu/.local/bin/uv run python -m producers.hotspot_producer
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

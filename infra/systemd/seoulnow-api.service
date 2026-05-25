@@ -1,0 +1,19 @@
+[Unit]
+Description=seoulnow serving FastAPI (chill-open / hotspots)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/seoulnow
+EnvironmentFile=/home/ubuntu/seoulnow/.env
+Environment=MINIO_ENDPOINT=http://localhost:9000
+Environment=LAKEKEEPER_URL=http://localhost:8181
+Environment=PYTHONPATH=src
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

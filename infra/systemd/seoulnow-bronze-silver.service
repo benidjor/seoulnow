@@ -1,0 +1,19 @@
+[Unit]
+Description=seoulnow flink bronze_to_silver
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/seoulnow
+EnvironmentFile=/home/ubuntu/seoulnow/.env
+Environment=MINIO_ENDPOINT=http://localhost:9000
+Environment=LAKEKEEPER_URL=http://localhost:8181
+Environment=PYTHONPATH=src
+ExecStart=/home/ubuntu/.local/bin/uv run --extra flink python -m flink_jobs.bronze_to_silver
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
