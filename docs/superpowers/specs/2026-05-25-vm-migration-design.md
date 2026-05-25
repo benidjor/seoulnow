@@ -35,7 +35,7 @@
 | 4 | 스코프/순서 | **MVP(데모 임계경로) 먼저 → 레이어링 후속** | 데모를 빠르게 live, 24GB 점진 관리. 최종은 전체 패리티 |
 | 5 | 지속 배포 | **GitHub Actions ssh 자동 배포**(main push → ssh → git pull + 영향 systemd/compose 반영) | `[[deployment-automation-first]]` 정합(ssh+수동 회피) |
 | 6 | 공공 API 쿼터 격리 | **VM 전용 키 신규 발급** — VM 은 새 `SEOUL_OPENAPI_KEY`(MVP)·`SEOUL_SUBWAY_API_KEY`(2차), Mac 은 기존 키 | 두 환경 동시 폴링 시 일일 쿼터 2배 소비 → 한도 초과 시 양쪽 동반 실패 회피. 값 = `.local-notes/vm-secrets.md`(미커밋). 인허가는 CSV 라 키 불필요 |
-| 7 | VM Airflow meta(2차) | **SQLite + LocalExecutor 로 시작**, 메모리 여유 확인 후 Postgres-meta 승격 옵션(이력 리셋 감수) | CLAUDE.md §13 정합(~700MB), 24GB 절약. 승격은 conn string 변경 + `airflow db migrate` 수준 |
+| 7 | VM Airflow meta(2차) | **LocalExecutor + `airflow_meta` DB on 기존 scp-postgres 재사용**(별도 Postgres 컨테이너 X) | 현 compose(L3-7)가 이미 채택 — **SQLite+LocalExecutor 은 Airflow lock 충돌로 불가**(brainstorm 가정 정정 2026-05-26). §13 메모리 mitigation 의 핵심(별도 Postgres 컨테이너 회피)은 scp-postgres 재사용으로 이미 달성 |
 
 ---
 
