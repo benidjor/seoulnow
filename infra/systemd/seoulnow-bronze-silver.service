@@ -11,6 +11,7 @@ EnvironmentFile=/home/ubuntu/seoulnow/.env
 Environment=MINIO_ENDPOINT=http://localhost:9000
 Environment=LAKEKEEPER_URL=http://localhost:8181
 Environment=PYTHONPATH=src
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
 ExecStart=/home/ubuntu/.local/bin/uv run --extra flink python -m flink_jobs.bronze_to_silver
 Restart=always
 RestartSec=10
