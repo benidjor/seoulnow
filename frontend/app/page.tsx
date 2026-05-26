@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FeatureCollection, Geometry } from "geojson";
 import {
   filterChillOpenPlaces,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/chill-open-client";
 import { normalizeHotspots, type HotspotDistrict } from "@/lib/hotspots-client";
 import { fetchApiJson } from "@/lib/api-client";
+import { buildClientEvent, postEvents } from "@/lib/events-client";
 
 const CongestionMap = dynamic(() => import("@/components/CongestionMap"), {
   ssr: false,
@@ -41,6 +42,34 @@ export default function Page() {
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
   const [degradedReason, setDegradedReason] = useState<string | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
+
+  // 페이지 진입 1회 map_view 발행 (StrictMode 이중 호출 guard)
+  const mapViewSent = useRef(false);
+  useEffect(() => {
+    if (mapViewSent.current) return;
+    mapViewSent.current = true;
+    postEvents([buildClientEvent("map_view")]);
+  }, []);
+
+  // react-leaflet GeoJSON 의 click 핸들러는 mount 시 1회만 bind 되어 클로저가
+  // stale 해진다 → 선택값 비교는 ref 로 최신값을 읽는다.
+  const selectedDistrictRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedDistrictRef.current = selectedDistrict;
+  }, [selectedDistrict]);
+
+  // 자치구 클릭 = hotspot_click(클릭 행위) + 선택이 바뀌면 district_filter(필터 변경).
+  // 마커 클릭 배선은 CongestionMap 수정이 필요해 Day 11 범위 밖.
+  function handleDistrictSelect(district: string) {
+    postEvents([buildClientEvent("hotspot_click", { district })]);
+    const previous = selectedDistrictRef.current;
+    if (district !== previous) {
+      postEvents([
+        buildClientEvent("district_filter", { district, previous }),
+      ]);
+    }
+    setSelectedDistrict(district);
+  }
 
   useEffect(() => {
     fetch("/seoul-districts.geojson")
@@ -131,7 +160,7 @@ export default function Page() {
             districts={districts}
             districtCongestion={hotspots}
             visibleMarkers={visibleMarkers}
-            onDistrictClick={setSelectedDistrict}
+            onDistrictClick={handleDistrictSelect}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-400">
