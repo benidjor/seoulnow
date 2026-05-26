@@ -14,13 +14,21 @@ sudo usermod -aG docker ubuntu && newgrp docker
 docker --version && docker compose version
 ```
 
-### 1-2. uv + repo + 의존성
+### 1-2. 빌드 의존성 + uv + Python 3.11 + 의존성
+
+VM(minimal Ubuntu)엔 컴파일러·JDK 부재 → pemja(PyFlink C 확장) 빌드 + Flink JVM 런타임 위해 `build-essential` + JDK 17 필수. Ubuntu 24.04 기본 Python 3.12 는 distutils 제거로 pemja 빌드 실패 → 3.11 고정(Mac dev 와 일치).
 ```bash
+sudo apt update && sudo apt install -y build-essential openjdk-17-jdk
+export JAVA_HOME="$(readlink -f "$(which java)" | sed 's:/bin/java::')"   # → /usr/lib/jvm/java-17-openjdk-arm64
 curl -LsSf https://astral.sh/uv/install.sh | sh
-which uv   # → /home/ubuntu/.local/bin/uv (다르면 systemd 유닛 ExecStart 수정)
+source $HOME/.local/bin/env                                              # uv PATH 즉시 반영
 cd ~/seoulnow && git pull --ff-only
-uv sync --extra dev --extra flink
+echo "3.11" > .python-version                                            # uv 3.11 타겟 (3.12 distutils 회피, systemd uv run 안정화)
+uv python install 3.11
+uv sync --extra dev --extra flink                                        # apache-flink + pemja 빌드 (~1-2분)
+uv run python --version                                                  # → 3.11.x 확인
 ```
+> JAVA_HOME 은 flink systemd 유닛(`seoulnow-bronze-silver` / `seoulnow-silver-gold`)에 `Environment=` 로 박혀 있어 런타임엔 별도 설정 불필요. 위 `export` 는 `uv sync`(pemja 빌드) 용.
 
 ### 1-3. .env sync (VM 전용 키 치환)
 - Mac `.env` 를 VM 으로 전송하되 `SEOUL_OPENAPI_KEY` / `SEOUL_SUBWAY_API_KEY` 는 `.local-notes/vm-secrets.md` 의 VM 전용 값으로 치환. 나머지(minio/postgres creds, RECEIVER_TOKEN, ANON_UA_SALT, KAFKA_BOOTSTRAP_SERVERS)는 동일.
