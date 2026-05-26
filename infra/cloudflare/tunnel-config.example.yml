@@ -6,9 +6,13 @@
 # .gitignore 로 차단되어 있다 (Cloudflare 영역 참조).
 
 tunnel: <YOUR_TUNNEL_UUID>
-credentials-file: /Users/<you>/.cloudflared/<YOUR_TUNNEL_UUID>.json
+credentials-file: /home/ubuntu/.cloudflared/<YOUR_TUNNEL_UUID>.json
 
 ingress:
-  - hostname: api.<your-domain>.com
+  # serving FastAPI (chill-open / hotspots) — VM 마이그레이션 MVP
+  - hostname: api.seoulnow.live
     service: http://localhost:8000
+  # Edge events HTTP receiver (Day 11 Task 11.2) — docker profile=receiver
+  - hostname: receiver.seoulnow.live
+    service: http://localhost:8400
   - service: http_status:404

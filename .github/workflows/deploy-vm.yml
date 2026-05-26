@@ -1,0 +1,26 @@
+name: deploy-vm
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'frontend/**'
+      - 'docs/**'
+      - '**/*.md'
+
+# 동시 배포 충돌 방지.
+concurrency:
+  group: deploy-vm
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ssh deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: bash /home/ubuntu/seoulnow/infra/vm/deploy.sh
