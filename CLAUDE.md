@@ -8,6 +8,60 @@
 
 ---
 
+## 작업 규칙 (필독 · 2026-10-21 bullet-in 정렬)
+
+> 2026-10-21 에 사용자의 최신 프로젝트 bullet-in 의 작업 규칙 · 컨벤션 · 검사 장치를 이식했다.
+> 아래 규칙이 본 문서의 옛 서술 (Day 단위 PR · 고정 트레일러 등)과 다르면 아래가 우선한다.
+
+### 행동 가이드라인 — LLM 코딩 실수 줄이기
+
+출처: [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills).
+프로젝트 지시와 병합해 적용한다.
+**트레이드오프**: 속도보다 신중을 택하고, 사소한 작업엔 판단으로 한다.
+
+1. **코딩 전에 생각** — 가정을 명시하고, 불확실하면 질문한다. 여러 해석이 가능하면 제시하고 임의로 고르지 않는다. 더 단순한 방법이 있으면 말한다.
+2. **단순함 우선** — 문제를 푸는 최소 코드만 쓴다. 요청 밖 기능 · 1회용 추상화 · 요청하지 않은 설정성 · 일어날 수 없는 시나리오의 에러 처리를 넣지 않는다.
+3. **수술적 변경** — 꼭 필요한 것만 건드린다. 인접 코드 · 주석 · 포맷을 「개선」 하지 않고, 무관한 죽은 코드는 언급만 한다. 바뀐 모든 줄이 요청에 직접 추적돼야 한다.
+4. **목표 주도 실행** — 작업을 검증 가능한 목표로 바꾸고 (「버그 수정」 → 「재현 테스트를 쓰고 통과」), 다단계 작업은 `[단계] → 검증: [확인]` 계획을 먼저 적는다.
+
+### 커밋 & PR 컨벤션
+
+- **정본** — `docs/conventions/2026-10-21-commit-pr-convention.md` (요약 `CONTRIBUTING.md` · 커밋 템플릿 `.gitmessage`).
+- **커밋** — `<type>(<scope>): 한국어 제목` + 본문 + `Refs:` + 트레일러이며, 제목은 명사형으로 끝낸다. 본문은 도입 1–2문장 (맥락 · 왜) + 명사형 불릿.
+- **트레일러** — 실제 작업 모델과 Claude 공식 noreply 를 쓴다. 설계 · 구현 모델이 다르면 역할 라벨로 두 줄 (`Co-Authored-By: Claude Opus 5.5 (설계) <noreply@anthropic.com>` · `Co-Authored-By: Claude Sonnet 5.5 (구현) <noreply@anthropic.com>`), 같으면 라벨 없이 한 줄이다. 리뷰 전용 모델은 넣지 않는다. 계획서의 커밋 블록에는 트레일러를 미리 쓰지 않는다.
+- **git 신원** — `benidjor <94089198+benidjor@users.noreply.github.com>` (로컬 `git config` 설정됨 · 다른 이메일 금지).
+- **PR** — 7섹션 한국어 본문을 `--body-file` 로 전달하고 **Claude 서명은 넣지 않는다**. 게시 전 `python3 .claude/tools/check-pr-format.py --body <파일> --title "<제목>"` 을 돌린다.
+- **단위 · 머지** — GitHub Flow + squash merge, **PR = Task**. **머지는 사용자가 한다** (세션은 push + PR 생성까지).
+- **자연스러운 한국어** — 커밋 · PR · docs 산문은 작업 중 만든 내부 용어 · 은유 · 압축 명사구 없이, 처음 읽는 사람이 대화 맥락 없이 이해할 문장으로 쓴다. PR 본문 · 트러블슈팅 · 런북은 게시 전 humanize-korean 스킬 (fast) 점검을 1회 통과시킨다. 이때 서식 규칙 · 명사형 불릿 · 수치 · 경로를 변경 금지 목록으로 명시한다.
+- **어투** — PR · 커밋 본문은 명사형 (체언 종결 · `~함/~됨/~임` 남발 금지), `docs/` 산문은 서술형이 정본이다.
+
+### 산출물 서식 · 계획서
+
+- **서식 (초안부터 적용)** — spec · plan · runbook · troubleshooting 에 컨벤션 §2.2 를 적용한다. `→` · `—` 는 줄 시작 (줄 끝 금지), 한 줄 = 한 문장, `·` · `+` · 여는 괄호 양옆 띄우기 (코드 · URL · 경로 제외).
+- **자동 검사** — `docs/` 아래 .md 저장 시 PostToolUse 훅 (`.claude/hooks/check-doc-format.py`)이 검사한다. 2026-10-21 이전부터 있던 문서는 건너뛴다. CI 도 PR 에서 바뀐 문서를 같은 기준으로 본다.
+- **가정과 확인** — 2026-10-21 이후 계획서 · 스펙에는 「가정과 확인」 · 「더 단순한 꼴과 버린 이유」 표가 필요하다 (계획서는 「작업 원칙」 절과 Task 별 `**Files:**` 도). 훅 · CI 가 `.claude/hooks/check-plan-sections.py` 로 검사한다.
+- **서브에이전트 지시 · 리뷰 문구 · Minor 처리** — `docs/conventions/2026-10-21-review-instructions.md`. 최종 리뷰 전과 PR 전에 `.claude/tools/check-plan-scope.py --plan <계획서>` 로 Files 목록 밖 변경을 본다.
+
+### 병렬 세션 · 워크트리
+
+- **각 세션은 자기 워크트리에서 시작한다** — `claude --worktree <이름>` (위치 `.claude/worktrees/<이름>/` · 브랜치 `worktree-<이름>`). 세션을 끝낼 때 변경이 없으면 자동 정리된다.
+- **`.worktreeinclude`** — `.env` · `dbt/seoul/profiles.yml` 이 새 워크트리에 자동 복사된다.
+- **VM 작업이 있는 세션은 `claude --worktree` 로 열지 않는다** — 가드가 `ssh` · 복합 셸을 막는다. 그때는 `git worktree add` 로 손으로 파고, 디렉터리 · 로컬 브랜치 · 원격 브랜치 · `git worktree prune` 넷을 직접 정리한다.
+- **메인 체크아웃의 브랜치는 바꾸지 않는다** — 다른 세션이 그 자리를 기준선으로 본다.
+- **워크트리 안 파이썬은 `uv run --project <워크트리>`** 로 고정한다.
+
+### 공개 저장소 주의
+
+- **이 저장소는 PUBLIC 이다** — 공개되는 글 (README · PR · 커밋 · docs)에 Claude 서명, 「포트폴리오 · 이직 · 취업」 프레이밍, 면접 암시 표현, 회사 실명을 쓰지 않는다.
+- **동기는 실제 제품 관점으로 서술한다** — 서울에서 사람을 만날 때 혼잡도와 영업시간을 한곳에서 보고 싶다는 사용자 관점.
+
+### 세션 운영 · 메모리
+
+- **세션 공통 규율의 정본** — 세션 메모리 `standing-session-rules`. 다음 세션 지시 원문은 이 규율을 복사하지 않고 가리킨다.
+- **남은 일의 단일 출처** — 세션 메모리 `next-tracks-backlog`. 이어서 할 세션의 지시 원문은 `next-session-prompt-<날짜>-<주제>` 메모리에 마크다운으로 둔다.
+
+---
+
 ## 0. 한 줄 요약
 
 **서비스 의도** (CLAUDE.md §1 SoT): 서울 활동 시 관심 지역의 실시간 혼잡도와 영업 중인 카페·술집(특히 마감까지 1시간 이상 남은 곳)을 확인·추천하는 작은 실서비스 + 그 서비스의 데이터 플랫폼. cafefinder 류 한국 유사 서비스의 attribution 없는 ToS 위반 패턴 대신 정공 path 로 차별화.
@@ -277,7 +331,9 @@ Phase 1 완료 후 진행. Phase 1A·1B에 들어간 항목 제외 잔여:
 
 새 세션에서 본 디렉토리에 진입했을 때:
 
-- [ ] 본 CLAUDE.md 전체를 끝까지 읽기
+- [ ] 본 CLAUDE.md 전체를 끝까지 읽기 (특히 「작업 규칙」 절)
+- [ ] 세션 메모리의 최신 `next-session-prompt-*` 지시 원문과 `next-tracks-backlog` 현황판 읽기
+- [ ] `gh pr list` 로 머지 대기 PR 확인 (머지는 사용자가 한다)
 - [ ] **Phase 1 작업 중이면 `docs/superpowers/specs/2026-04-30-seoul-citydata-platform-phase1-design.md` 도 함께 읽기** (Phase 1 단일 출처)
 - [ ] **현재 어느 단계 / 어느 Day 인지 사용자에게 확인** (P1A Day X / P1B Day X / P2 Wx)
 - [ ] `git log --oneline -20` 으로 최근 진행 상황 파악
