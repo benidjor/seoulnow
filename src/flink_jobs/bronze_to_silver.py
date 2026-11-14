@@ -30,6 +30,9 @@ log = logging.getLogger(__name__)
 
 
 def register_kafka_source_hotspot(t_env: TableEnvironment) -> None:
+    # 시작 위치 = 체크포인트 때 커밋한 group offset. 체크포인트가 프로세스 메모리에만
+    # 있어 earliest-offset 이면 재시작마다 보존분 (7일)을 bronze 에 다시 넣는다
+    # (2026-11-15 트러블슈팅). 커밋된 offset 이 없을 때 (첫 기동)만 earliest.
     bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     ddl = f"""
     CREATE TEMPORARY TABLE hotspot_kafka_src (
@@ -50,7 +53,8 @@ def register_kafka_source_hotspot(t_env: TableEnvironment) -> None:
       'topic' = 'seoul.hotspot.congestion.v1',
       'properties.bootstrap.servers' = '{bootstrap}',
       'properties.group.id' = 'flink-bronze-hotspot',
-      'scan.startup.mode' = 'earliest-offset',
+      'scan.startup.mode' = 'group-offsets',
+      'properties.auto.offset.reset' = 'earliest',
       'format' = 'json',
       'json.timestamp-format.standard' = 'ISO-8601',
       'json.ignore-parse-errors' = 'true'
