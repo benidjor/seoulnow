@@ -176,6 +176,8 @@ main branch 에 임의 commit push → Cloudflare Pages 의 `Deployments` 탭에
 
 ## 6. (Day 11 implementation 시점 작업) Custom domain 추가
 
+> ⚠️ **2026-10-21 점검 결과 미수행 상태** — Day 11 진행 중 누락되어 apex DNS 레코드 없음. 경위 = [`2026-10-21-resume-prod-health-audit.md`](../../portfolio/troubleshooting/2026-10-21-resume-prod-health-audit.md) Issue 2.
+
 prep 단계에서는 **하지 않음**. Day 11 Task 11.1 진입 직전 1분 작업:
 
 1. Cloudflare dashboard → `Workers & Pages` → `seoulnow` 프로젝트 진입
