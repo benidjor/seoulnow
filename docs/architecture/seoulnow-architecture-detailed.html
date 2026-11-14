@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>seoulnow Architecture</title>
+<style>
+  :root {
+    --ink: #1f2933;
+    --muted: #616e7c;
+    --run: #0f766e;
+    --run-bg: #ffffff;
+    --code: #b45309;
+    --code-bg: #fffbeb;
+    --plan: #7b8794;
+    --plan-bg: #f5f7fa;
+    --kafka: #c2410c;
+    --lake: #15803d;
+    --cf: #ea580c;
+    --vm: #334e68;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 2000px; height: 1250px; background: #ffffff; }
+  body {
+    position: relative;
+    font-family: "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif;
+    color: var(--ink);
+  }
+  .abs { position: absolute; }
+  h1 { position: absolute; left: 30px; top: 22px; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
+  .sub { position: absolute; left: 32px; top: 62px; font-size: 15px; color: var(--muted); }
+
+  .region { position: absolute; border-radius: 14px; }
+  .region > .rlabel {
+    position: absolute; top: -13px; left: 16px; padding: 2px 10px;
+    background: #fff; font-size: 14px; font-weight: 700; border-radius: 6px; z-index: 3;
+  }
+  .vm { border: 2.5px solid var(--vm); background: #f8fafc; }
+  .vm > .rlabel { color: var(--vm); }
+  .cf { border: 2.5px solid var(--cf); background: #fff7ed; }
+  .cf > .rlabel { color: var(--cf); }
+  .kafka { border: 2.5px solid var(--kafka); background: #fef2f2; }
+  .kafka > .rlabel { color: var(--kafka); }
+  .lake { border: 2.5px solid var(--lake); background: #f0fdf4; }
+  .lake > .rlabel { color: var(--lake); }
+  .band { border: 2px solid #cbd2d9; background: #ffffff; }
+  .band > .rlabel { color: var(--muted); }
+
+  .box {
+    position: absolute; border-radius: 9px; padding: 7px 10px;
+    font-size: 13px; line-height: 1.35; display: flex; flex-direction: column; justify-content: center;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+  .box b { font-size: 14.5px; font-weight: 700; }
+  .box .d { color: var(--muted); font-size: 12px; }
+  .run  { border: 2.2px solid var(--run);  background: var(--run-bg); }
+  .code { border: 2.2px dashed var(--code); background: var(--code-bg); }
+  .plan { border: 2px dotted var(--plan); background: var(--plan-bg); color: #52606d; }
+  .ext  { border: 2.2px solid #52606d; background: #ffffff; }
+  .topic b { font-family: "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .tbl b { font-family: "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .warn { color: #b91c1c; font-weight: 700; font-size: 12px; }
+
+  .legend { position: absolute; left: 30px; top: 100px; width: 390px; padding: 14px 16px;
+            border: 1.5px solid #e4e7eb; border-radius: 10px; background: #fff; font-size: 13px; }
+  .legend .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .legend .sw { width: 44px; height: 22px; border-radius: 5px; flex: none; }
+  .legend .ln { width: 44px; flex: none; }
+  .legend .t { font-weight: 700; margin-bottom: 4px; }
+
+  svg#edges { position: absolute; left: 0; top: 0; width: 2000px; height: 1250px; pointer-events: none; }
+  .elabel { position: absolute; font-size: 11.5px; color: var(--muted); background: rgba(255,255,255,0.92);
+            padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>seoulnow 전체 아키텍처</h1>
+<div class="sub">서울 실시간 혼잡도 + 영업 중 가게 추천 서비스와 데이터 플랫폼 · 구현 상태 기준: main <code>a89f5af</code> (2026-05-26)</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="t">구현 상태</div>
+  <div class="row"><div class="sw run"></div>prod 운영 중 (VM 가동)</div>
+  <div class="row"><div class="sw code"></div>코드 구현됨 · VM 미가동 (Mac dev 검증)</div>
+  <div class="row"><div class="sw plan"></div>계획 (Phase 1B 후반 · 미구현)</div>
+  <div class="t" style="margin-top:10px">데이터 흐름</div>
+  <div class="row"><svg class="ln" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#0f766e" stroke-width="2.4"/></svg>운영 중 흐름</div>
+  <div class="row"><svg class="ln" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#b45309" stroke-width="2.2" stroke-dasharray="7 5"/></svg>미가동 흐름</div>
+  <div class="row"><svg class="ln" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#9aa5b1" stroke-width="2" stroke-dasharray="2 4"/></svg>계획 흐름</div>
+</div>
+
+<!-- Cloudflare -->
+<div class="region cf" style="left:1150px; top:84px; width:590px; height:166px;"><div class="rlabel">Cloudflare (무료 티어)</div></div>
+<div id="tunnel" class="box run" style="left:1170px; top:112px; width:230px; height:116px;">
+  <b>Cloudflare Tunnel</b>
+  <span class="d">api.seoulnow.live → :8000</span>
+  <span class="d">receiver.seoulnow.live → :8400</span>
+  <span class="d">공인 포트 노출 없음</span>
+</div>
+<div id="pages" class="box run" style="left:1450px; top:104px; width:270px; height:132px;">
+  <b>Cloudflare Pages · seoulnow.pages.dev</b>
+  <span class="d">Next.js 15 + react-leaflet 메인 지도</span>
+  <span class="d">Pages Functions (Edge API)</span>
+  <span class="d">· /api/v1/hotspots, chill-open-now (프록시)</span>
+  <span class="d">· /api/v1/events (anon_id 쿠키 발급)</span>
+</div>
+<div id="browser" class="box ext" style="left:1790px; top:124px; width:180px; height:92px;">
+  <b>사용자 브라우저</b>
+  <span class="d">익명 · 회원가입 없음</span>
+</div>
+
+<!-- External sources -->
+<div id="citydata" class="box ext" style="left:30px; top:398px; width:230px; height:76px;">
+  <b>서울 실시간 도시데이터 API</b><span class="d">citydata · 5분 갱신</span>
+</div>
+<div id="subwayapi" class="box ext" style="left:30px; top:500px; width:230px; height:76px;">
+  <b>지하철 실시간 도착정보 API</b><span class="d">60초 · 일 1,000회 한도</span>
+</div>
+<div id="permit" class="box ext" style="left:30px; top:816px; width:230px; height:80px;">
+  <b>가게 마스터 CSV</b><span class="d">places_seed_sample.csv</span><span class="warn">가상 샘플 10건 (인허가 미적재)</span>
+</div>
+
+<!-- VM -->
+<div class="region vm" style="left:300px; top:280px; width:1420px; height:730px;">
+  <div class="rlabel">Oracle Cloud VM (prod) — Tokyo · Ampere A1 4 OCPU / 24GB · docker: kafka·postgres·minio·lakekeeper · systemd: producer·flink×2·api</div>
+</div>
+
+<!-- Ingestion column -->
+<div id="receiver" class="box code" style="left:325px; top:306px; width:235px; height:70px;">
+  <b>HTTP receiver</b><span class="d">FastAPI :8400 · Bearer · aiokafka</span>
+</div>
+<div id="hprod" class="box run" style="left:325px; top:398px; width:235px; height:76px;">
+  <b>hotspot producer</b><span class="d">systemd · 5분 폴링</span><span class="warn">핫스팟 3곳만 (계획 120곳)</span>
+</div>
+<div id="sprod" class="box code" style="left:325px; top:500px; width:235px; height:76px;">
+  <b>subway producer</b><span class="d">60초 폴링</span>
+</div>
+<div id="pg" class="box code" style="left:325px; top:612px; width:235px; height:70px;">
+  <b>Postgres places</b><span class="d">OLTP 가게 마스터 · REPLICA IDENTITY FULL</span>
+</div>
+<div id="dbz" class="box code" style="left:325px; top:706px; width:235px; height:70px;">
+  <b>Debezium</b><span class="d">Kafka Connect · VM compose 제외</span>
+</div>
+<div id="loader" class="box run" style="left:325px; top:820px; width:235px; height:72px;">
+  <b>load_static_places.py</b><span class="d">1회 적재 · DuckDB COPY → parquet</span>
+</div>
+
+<!-- Kafka -->
+<div class="region kafka" style="left:600px; top:300px; width:236px; height:500px;"><div class="rlabel">Kafka KRaft single-node</div></div>
+<div id="t_events" class="box run topic" style="left:614px; top:316px; width:208px; height:58px;">
+  <b>user.events.v1</b><span class="d">6p · 30d · 트래픽 없음</span>
+</div>
+<div id="t_hot" class="box run topic" style="left:614px; top:406px; width:208px; height:62px;">
+  <b>seoul.hotspot.<br>congestion.v1</b><span class="d">3p · 7d</span>
+</div>
+<div id="t_sub" class="box code topic" style="left:614px; top:506px; width:208px; height:66px;">
+  <b>seoul.transit.subway.v1</b><span class="d">6p · 3d</span><span class="warn">컨슈머 없음</span>
+</div>
+<div id="t_cdc" class="box code topic" style="left:614px; top:710px; width:208px; height:62px;">
+  <b>place.master.cdc.v1</b><span class="d">1p · 30d</span>
+</div>
+
+<!-- Processing -->
+<div id="b2s" class="box run" style="left:878px; top:378px; width:236px; height:82px;">
+  <b>PyFlink bronze_to_silver</b><span class="d">Kafka source · region 매핑 UDTF</span><span class="d">StatementSet (bronze+silver)</span>
+</div>
+<div id="s2g" class="box run" style="left:878px; top:480px; width:236px; height:82px;">
+  <b>PyFlink silver_to_gold</b><span class="d">5분 TUMBLE × 자치구</span><span class="d">watermark 1분 · SLO 컬럼 기록</span>
+</div>
+<div id="cdcjob" class="box code" style="left:878px; top:700px; width:236px; height:72px;">
+  <b>PyFlink cdc_to_dim_place</b><span class="d">append-only SCD2 골격</span>
+</div>
+<div id="spark" class="box code" style="left:878px; top:796px; width:236px; height:82px;">
+  <b>Spark batch (일시 기동)</b><span class="d">MERGE INTO dim_place (멱등)</span><span class="d">rewrite_data_files · expire_snapshots</span>
+</div>
+<div id="dbt" class="box code" style="left:878px; top:900px; width:236px; height:76px;">
+  <b>dbt-duckdb</b><span class="d">stg → hourly · dim_place · chill_open_now</span><span class="d">tests 6+ · prod serving 미사용</span>
+</div>
+
+<!-- Lakehouse -->
+<div class="region lake" style="left:1160px; top:300px; width:270px; height:690px;"><div class="rlabel">Iceberg · Lakekeeper REST · MinIO</div></div>
+<div id="bronze" class="box run tbl" style="left:1174px; top:330px; width:242px; height:54px;">
+  <b>bronze.hotspot_raw</b><span class="d">raw · area_code 파티션</span>
+</div>
+<div id="silver" class="box run tbl" style="left:1174px; top:404px; width:242px; height:58px;">
+  <b>silver.hotspot_congestion</b><span class="d">17컬럼 · 혼잡도 1~4점 · district</span>
+</div>
+<div id="gold" class="box run tbl" style="left:1174px; top:482px; width:242px; height:76px;">
+  <b>gold.fact_hotspot_<br>congestion_5min</b><span class="d">SLO 컬럼 3개</span><span class="warn">VM compaction 없음 → small file 누적</span>
+</div>
+<div id="dimplace" class="box code tbl" style="left:1174px; top:704px; width:242px; height:58px;">
+  <b>silver · gold.dim_place</b><span class="d">SCD2 (valid_from / valid_to)</span>
+</div>
+<div id="static" class="box run tbl" style="left:1174px; top:784px; width:242px; height:58px;">
+  <b>bronze.places_static_v1</b><span class="d">parquet (catalog 미등록)</span>
+</div>
+<div id="marts" class="box code tbl" style="left:1174px; top:904px; width:242px; height:66px;">
+  <b>gold marts (dbt)</b><span class="d">fact_hotspot_congestion_hourly</span><span class="d">chill_open_now</span>
+</div>
+
+<!-- Serving -->
+<div id="api" class="box run" style="left:1470px; top:440px; width:230px; height:132px;">
+  <b>FastAPI serving :8000</b>
+  <span class="d">systemd · src/api</span>
+  <span class="d">/api/hotspots</span>
+  <span class="d">/api/chill-open (영업 중 여부는 요청 시점 계산)</span>
+  <span class="d">pyiceberg plan_files → DuckDB read_parquet</span>
+</div>
+
+<!-- Bottom bands -->
+<div class="region band" style="left:300px; top:1050px; width:420px; height:172px;"><div class="rlabel">CI/CD</div></div>
+<div class="box run" style="left:318px; top:1072px; width:384px; height:136px;">
+  <b>GitHub Actions</b>
+  <span class="d">CI: ruff · pytest · dbt parse/compile (PR마다)</span>
+  <span class="d">deploy-vm: main push → ssh → git pull → systemd restart</span>
+  <b style="margin-top:6px">Cloudflare Pages</b>
+  <span class="d">main push → next-on-pages 자동 빌드·배포</span>
+</div>
+
+<div class="region band" style="left:750px; top:1050px; width:470px; height:172px;"><div class="rlabel">오케스트레이션 · 관측 (Mac dev에서만 가동)</div></div>
+<div id="airflow" class="box code" style="left:768px; top:1072px; width:434px; height:136px;">
+  <b>Airflow 4 DAG · LocalExecutor (meta = scp-postgres)</b>
+  <span class="d">dbt_full_run (TaskGroup · SLA · retry)</span>
+  <span class="d">iceberg_maintenance (병렬 compaction · XCom)</span>
+  <span class="d">backfill_silver_from_bronze (dynamic task mapping)</span>
+  <span class="d">slo_daily_report (BranchPythonOperator → Discord)</span>
+</div>
+
+<div class="region band" style="left:1250px; top:1050px; width:720px; height:172px;"><div class="rlabel">Phase 1B 계획 (Day 12~18)</div></div>
+<div id="p_flink" class="box plan" style="left:1268px; top:1074px; width:220px; height:62px;">
+  <b>Flink user_events</b><span class="d">→ fact_user_event (Day 14)</span>
+</div>
+<div id="p_d1" class="box plan" style="left:1502px; top:1074px; width:220px; height:62px;">
+  <b>D1 북마크 · 구독</b><span class="d">Day 12~13</span>
+</div>
+<div id="p_cron" class="box plan" style="left:1736px; top:1074px; width:218px; height:62px;">
+  <b>Workers Cron + Web Push</b><span class="d">VAPID · Day 13</span>
+</div>
+<div id="p_ext" class="box plan" style="left:1268px; top:1146px; width:338px; height:62px;">
+  <b>카카오 평점 · 네이버 영업시간 fetcher</b><span class="d">places_external · Day 16 (ToS 거버넌스 문서)</span>
+</div>
+<div id="p_bi" class="box plan" style="left:1620px; top:1146px; width:334px; height:62px;">
+  <b>회원가입 · Superset · Trino</b><span class="d">Day 15 · 17 · 18</span>
+</div>
+
+<svg id="edges">
+  <defs>
+    <marker id="a-run" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
+    <marker id="a-code" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/></marker>
+    <marker id="a-plan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa5b1"/></marker>
+  </defs>
+</svg>
+
+<script>
+  const STYLE = {
+    run:  { stroke: "#0f766e", width: 2.4, dash: "" },
+    code: { stroke: "#b45309", width: 2.2, dash: "7 5" },
+    plan: { stroke: "#9aa5b1", width: 2,   dash: "2 4" },
+  };
+  function anchor(id, side, off = 0) {
+    const r = document.getElementById(id).getBoundingClientRect();
+    switch (side) {
+      case "r": return [r.right, r.top + r.height / 2 + off];
+      case "l": return [r.left, r.top + r.height / 2 + off];
+      case "t": return [r.left + r.width / 2 + off, r.top];
+      case "b": return [r.left + r.width / 2 + off, r.bottom];
+    }
+  }
+  const svg = document.getElementById("edges");
+  function edge(from, fs, to, ts, kind, opts = {}) {
+    const p0 = anchor(from, fs, opts.fo || 0);
+    const p1 = anchor(to, ts, opts.to || 0);
+    let d;
+    if (opts.via) {
+      d = `M${p0[0]},${p0[1]} ` + opts.via.map(p => `L${p[0]},${p[1]}`).join(" ") + ` L${p1[0]},${p1[1]}`;
+    } else {
+      const k = Math.max(30, Math.abs(p1[0] - p0[0]) * 0.45);
+      const c0 = fs === "r" ? [p0[0] + k, p0[1]] : fs === "l" ? [p0[0] - k, p0[1]] : fs === "b" ? [p0[0], p0[1] + k] : [p0[0], p0[1] - k];
+      const c1 = ts === "l" ? [p1[0] - k, p1[1]] : ts === "r" ? [p1[0] + k, p1[1]] : ts === "t" ? [p1[0], p1[1] - k] : [p1[0], p1[1] + k];
+      d = `M${p0[0]},${p0[1]} C${c0[0]},${c0[1]} ${c1[0]},${c1[1]} ${p1[0]},${p1[1]}`;
+    }
+    const s = STYLE[kind];
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", s.stroke);
+    path.setAttribute("stroke-width", s.width);
+    if (s.dash) path.setAttribute("stroke-dasharray", s.dash);
+    path.setAttribute("marker-end", `url(#a-${kind})`);
+    svg.appendChild(path);
+    if (opts.label) {
+      const el = document.createElement("div");
+      el.className = "elabel";
+      el.textContent = opts.label;
+      el.style.left = opts.label_at[0] + "px";
+      el.style.top = opts.label_at[1] + "px";
+      document.body.appendChild(el);
+    }
+  }
+
+  // Sources → ingestion
+  edge("citydata", "r", "hprod", "l", "run");
+  edge("subwayapi", "r", "sprod", "l", "code");
+  edge("permit", "r", "loader", "l", "run");
+  // Ingestion → Kafka
+  edge("receiver", "r", "t_events", "l", "code");
+  edge("hprod", "r", "t_hot", "l", "run");
+  edge("sprod", "r", "t_sub", "l", "code");
+  edge("pg", "b", "dbz", "t", "code");
+  edge("dbz", "r", "t_cdc", "l", "code");
+  // Kafka → processing
+  edge("t_hot", "r", "b2s", "l", "run");
+  edge("t_cdc", "r", "cdcjob", "l", "code");
+  edge("t_events", "r", "p_flink", "t", "plan", { via: [[850, 345], [850, 640], [1136, 640], [1136, 1032], [1378, 1032]] });
+  // Processing ↔ lakehouse
+  edge("b2s", "r", "bronze", "l", "run", { fo: -14 });
+  edge("b2s", "r", "silver", "l", "run", { fo: 10 });
+  edge("silver", "l", "s2g", "r", "run", { fo: 14, to: -10 });
+  edge("s2g", "r", "gold", "l", "run", { fo: 14 });
+  edge("cdcjob", "r", "dimplace", "l", "code");
+  edge("spark", "r", "dimplace", "l", "code", { to: 16 });
+  edge("dbt", "r", "marts", "l", "code");
+  edge("loader", "r", "static", "l", "run", { via: [[580, 856], [580, 990], [1150, 990], [1150, 813]] });
+  // Lakehouse → serving
+  edge("gold", "r", "api", "l", "run", { to: -20 });
+  edge("static", "r", "api", "l", "run", { to: 30 });
+  // Edge
+  edge("browser", "l", "pages", "r", "run");
+  edge("pages", "l", "tunnel", "r", "run");
+  edge("tunnel", "b", "api", "t", "run", { via: [[1285, 262], [1585, 262]], label: "HTTPS (Tunnel)", label_at: [1440, 252] });
+  edge("tunnel", "l", "receiver", "t", "code", { via: [[442, 170]], label: "POST /v1/events · 현재 502", label_at: [700, 160] });
+  // Airflow (dev) → batch
+  edge("airflow", "t", "dbt", "b", "code", { fo: -60, to: 0 });
+</script>
+</body>
+</html>

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>seoulnow Architecture</title>
+<style>
+  :root {
+    --ink: #1f2933;
+    --muted: #616e7c;
+    --line: #d9e2ec;
+    --run: #0f9f6e;
+    --idle: #d97706;
+    --plan: #9aa5b1;
+    --ext: #486581;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1024px; background: #ffffff; }
+  body { position: relative; color: var(--ink);
+         font-family: "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", sans-serif; }
+
+  .title { position: absolute; left: 34px; top: 24px; font-size: 34px; font-weight: 800; letter-spacing: -0.6px; }
+  .subtitle { position: absolute; left: 36px; top: 70px; font-size: 16px; color: var(--muted); }
+
+  .legend { position: absolute; right: 34px; top: 34px; display: flex; gap: 18px; font-size: 15px; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  .colhead { position: absolute; top: 108px; width: 190px; text-align: center;
+             font-size: 14px; font-weight: 700; color: var(--muted); letter-spacing: 0.5px; }
+
+  .lane { position: absolute; left: 20px; width: 1880px; border-radius: 14px; }
+  .lane .lname { position: absolute; left: 16px; top: 10px; font-size: 15px; font-weight: 800; }
+  .lane.a { background: #f0fbf6; border: 1.5px solid #b7e4cf; }
+  .lane.a .lname { color: #087f5b; }
+  .lane.b { background: #fdf8ef; border: 1.5px solid #f1d9ad; }
+  .lane.b .lname { color: #b45309; }
+  .lane.c { background: #f5f7fa; border: 1.5px solid #d9e2ec; }
+  .lane.c .lname { color: #52606d; }
+
+  .box { position: absolute; width: 190px; background: #fff; border: 1.5px solid var(--line);
+         border-left-width: 6px; border-radius: 10px; padding: 9px 12px;
+         display: flex; flex-direction: column; justify-content: center; gap: 3px;
+         box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07); }
+  .box .t { font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .box .s { font-size: 13px; color: var(--muted); line-height: 1.35; }
+  .box .w { font-size: 12.5px; color: #c81e1e; font-weight: 700; }
+  .box.run  { border-left-color: var(--run); }
+  .box.idle { border-left-color: var(--idle); }
+  .box.plan { border-left-color: var(--plan); border-style: dashed; border-left-style: solid; background: #fafbfc; }
+  .box.plan .t { color: #52606d; }
+  .box.ext  { border-left-color: var(--ext); background: #f8fafc; }
+  .mono { font-family: "SF Mono", Menlo, monospace; font-size: 14px !important; }
+
+  .stop { position: absolute; font-size: 13px; font-weight: 700; color: #c81e1e;
+          background: #fff1f1; border: 1.5px solid #f5b5b5; border-radius: 999px; padding: 5px 12px; }
+
+  .infra { position: absolute; left: 20px; top: 812px; width: 1880px; height: 192px;
+           border: 1.5px solid var(--line); border-radius: 14px; background: #ffffff; }
+  .infra .lname { position: absolute; left: 16px; top: 10px; font-size: 15px; font-weight: 800; color: #334e68; }
+  .chip { position: absolute; top: 48px; width: 448px; height: 126px; border-radius: 12px;
+          border: 1.5px solid var(--line); padding: 14px 16px; background: #fbfcfd; }
+  .chip .t { font-size: 17px; font-weight: 800; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .chip li { font-size: 14px; color: #3e4c59; line-height: 1.6; margin-left: 18px; }
+  .pill { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; color: #fff; }
+
+  .elabel { position: absolute; font-size: 13px; color: #52606d; background: #fff;
+            border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+
+  svg#edges { position: absolute; left: 0; top: 0; width: 1920px; height: 1024px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="title">seoulnow 아키텍처</div>
+<div class="subtitle">서울 실시간 혼잡도 + 영업 중 가게 서비스 · 구현 상태 기준 main a89f5af (2026-05-26)</div>
+<div class="legend">
+  <span><i class="dot" style="background:var(--run)"></i>운영 중 (VM)</span>
+  <span><i class="dot" style="background:var(--idle)"></i>구현됨 · 미가동</span>
+  <span><i class="dot" style="background:#fff;border:1.5px dashed var(--plan)"></i>계획</span>
+  <span><i class="dot" style="background:var(--ext)"></i>외부 소스</span>
+</div>
+
+<div class="lane a" style="top:140px; height:252px;"><div class="lname">① 혼잡도 파이프라인</div></div>
+<div class="lane b" style="top:408px; height:204px;"><div class="lname">② 가게 마스터</div></div>
+<div class="lane c" style="top:628px; height:166px;"><div class="lname">③ 사용자 행동 로그 (Phase 1B)</div></div>
+
+<div class="infra">
+  <div class="lname">운영 기반</div>
+  <div class="chip" style="left:16px;">
+    <div class="t">Oracle Cloud VM <span class="pill" style="background:var(--run)">prod</span></div>
+    <ul>
+      <li>Ampere A1 4 OCPU · 24GB · Tokyo</li>
+      <li>docker: Kafka · Postgres · MinIO · Lakekeeper</li>
+      <li>systemd: producer · PyFlink ×2 · FastAPI</li>
+    </ul>
+  </div>
+  <div class="chip" style="left:480px;">
+    <div class="t">Cloudflare <span class="pill" style="background:var(--run)">무료</span></div>
+    <ul>
+      <li>Pages: Next.js 15 지도 + Edge API</li>
+      <li>Tunnel: api / receiver.seoulnow.live</li>
+      <li>공인 포트 노출 없음</li>
+    </ul>
+  </div>
+  <div class="chip" style="left:944px;">
+    <div class="t">CI/CD <span class="pill" style="background:var(--run)">자동</span></div>
+    <ul>
+      <li>GitHub Actions: ruff · pytest · dbt parse</li>
+      <li>main push → ssh 배포 → systemd 재시작</li>
+      <li>main push → Pages 자동 빌드</li>
+    </ul>
+  </div>
+  <div class="chip" style="left:1408px;">
+    <div class="t">배치 · 오케스트레이션 <span class="pill" style="background:var(--idle)">Mac dev만</span></div>
+    <ul>
+      <li>Airflow 4 DAG (dbt · compaction · 백필 · SLO)</li>
+      <li>Spark: MERGE INTO 멱등성 · Compaction</li>
+      <li>dbt-duckdb: hourly · chill_open_now mart</li>
+    </ul>
+  </div>
+</div>
+
+<svg id="edges">
+  <defs>
+    <marker id="m-run" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0f9f6e"/></marker>
+    <marker id="m-idle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker>
+    <marker id="m-plan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa5b1"/></marker>
+  </defs>
+</svg>
+
+<script>
+  const W = 190, G = 48, X0 = 40;
+  const colX = i => X0 + i * (W + G);
+
+  ["소스", "수집", "메시징 · Kafka", "스트림 처리", "레이크하우스", "서빙", "Edge", "사용자"]
+    .forEach((h, i) => {
+      const el = document.createElement("div");
+      el.className = "colhead"; el.textContent = h; el.style.left = colX(i) + "px";
+      document.body.appendChild(el);
+    });
+
+  const BOXES = [
+    // ① 혼잡도 파이프라인 — main row
+    { id: "city",   c: 0, y: 186, h: 108, k: "ext",  t: "서울 실시간<br>도시데이터 API", s: "실시간 인구현황 · 5분" },
+    { id: "hprod",  c: 1, y: 186, h: 108, k: "run",  t: "hotspot producer", s: "5분 폴링", w: "핫스팟 3곳 (계획 120)" },
+    { id: "thot",   c: 2, y: 186, h: 108, k: "run",  t: "hotspot.<br>congestion.v1", s: "3 partitions · 7d", mono: true },
+    { id: "flink",  c: 3, y: 186, h: 108, k: "run",  t: "PyFlink", s: "bronze → silver<br>silver → gold (5분 × 자치구)" },
+    { id: "ice",    c: 4, y: 186, h: 108, k: "run",  t: "Iceberg", s: "Bronze → Silver → Gold<br>Lakekeeper · MinIO", w: "VM compaction 없음" },
+    { id: "api",    c: 5, y: 186, h: 108, k: "run",  t: "FastAPI", s: "/api/hotspots<br>/api/chill-open" },
+    { id: "cf",     c: 6, y: 186, h: 108, k: "run",  t: "Cloudflare", s: "Tunnel → Pages<br>Next.js 15 지도" },
+    { id: "user",   c: 7, y: 186, h: 108, k: "ext",  t: "사용자 브라우저", s: "자치구 혼잡도 지도<br>한가 + 영업 중 가게" },
+    // ① subway row
+    { id: "sub",    c: 0, y: 314, h: 62,  k: "ext",  t: "지하철 도착정보 API", s: "60초" },
+    { id: "sprod",  c: 1, y: 314, h: 62,  k: "idle", t: "subway producer", s: "60초 폴링" },
+    { id: "tsub",   c: 2, y: 314, h: 62,  k: "idle", t: "subway.v1", s: "6 partitions · 3d", mono: true },
+    // ② 가게 마스터
+    { id: "csv",    c: 0, y: 452, h: 64,  k: "ext",  t: "가게 CSV", w: "가상 샘플 10건" },
+    { id: "loader", c: 1, y: 452, h: 64,  k: "run",  t: "load_static_places", s: "1회 적재" },
+    { id: "static", c: 4, y: 452, h: 64,  k: "run",  t: "places_static", s: "parquet" },
+    { id: "pg",     c: 0, y: 532, h: 64,  k: "idle", t: "Postgres places", s: "OLTP" },
+    { id: "dbz",    c: 1, y: 532, h: 64,  k: "idle", t: "Debezium", s: "CDC" },
+    { id: "tcdc",   c: 2, y: 532, h: 64,  k: "idle", t: "place.master.cdc.v1", s: "1 partition · 30d", mono: true },
+    { id: "cdcjob", c: 3, y: 532, h: 64,  k: "idle", t: "PyFlink + Spark", s: "append → MERGE INTO" },
+    { id: "dim",    c: 4, y: 532, h: 64,  k: "idle", t: "dim_place", s: "SCD Type 2" },
+    // ③ 사용자 행동 로그
+    { id: "recv",   c: 1, y: 670, h: 68,  k: "idle", t: "HTTP receiver", s: "FastAPI :8400" },
+    { id: "tev",    c: 2, y: 670, h: 68,  k: "idle", t: "user.events.v1", s: "6 partitions · 30d", mono: true },
+    { id: "fev",    c: 3, y: 670, h: 68,  k: "plan", t: "PyFlink", s: "Day 14" },
+    { id: "fue",    c: 4, y: 670, h: 68,  k: "plan", t: "fact_user_event", s: "Day 14" },
+    { id: "edge",   c: 6, y: 670, h: 68,  k: "idle", t: "Pages Functions", s: "/api/v1/events · anon_id" },
+  ];
+
+  for (const b of BOXES) {
+    const el = document.createElement("div");
+    el.className = `box ${b.k}`; el.id = b.id;
+    el.style.left = colX(b.c) + "px"; el.style.top = b.y + "px"; el.style.height = b.h + "px";
+    el.innerHTML = `<div class="t${b.mono ? " mono" : ""}">${b.t}</div>` +
+                   (b.s ? `<div class="s">${b.s}</div>` : "") +
+                   (b.w ? `<div class="w">${b.w}</div>` : "");
+    document.body.appendChild(el);
+  }
+
+  const stop = document.createElement("div");
+  stop.className = "stop"; stop.textContent = "✕ 컨슈머 없음";
+  stop.style.left = (colX(3) + 22) + "px"; stop.style.top = "328px";
+  document.body.appendChild(stop);
+
+  const COLOR = { run: "#0f9f6e", idle: "#d97706", plan: "#9aa5b1" };
+  const DASH = { run: "", idle: "8 6", plan: "3 5" };
+  const svg = document.getElementById("edges");
+  const rect = id => document.getElementById(id).getBoundingClientRect();
+  const pt = (id, side) => {
+    const r = rect(id);
+    return { r: [r.right, r.top + r.height / 2], l: [r.left, r.top + r.height / 2],
+             t: [r.left + r.width / 2, r.top], b: [r.left + r.width / 2, r.bottom] }[side];
+  };
+  function edge(a, as, b, bs, k, via) {
+    const p = [pt(a, as), ...(via || []), pt(b, bs)];
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", p.map((q, i) => (i ? "L" : "M") + q[0] + "," + q[1]).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", COLOR[k]);
+    path.setAttribute("stroke-width", 2.6);
+    path.setAttribute("stroke-linejoin", "round");
+    if (DASH[k]) path.setAttribute("stroke-dasharray", DASH[k]);
+    path.setAttribute("marker-end", `url(#m-${k})`);
+    svg.appendChild(path);
+  }
+  function label(text, x, y) {
+    const el = document.createElement("div");
+    el.className = "elabel"; el.textContent = text;
+    el.style.left = x + "px"; el.style.top = y + "px";
+    document.body.appendChild(el);
+  }
+
+  // ① main flow
+  edge("city", "r", "hprod", "l", "run");
+  edge("hprod", "r", "thot", "l", "run");
+  edge("thot", "r", "flink", "l", "run");
+  edge("flink", "r", "ice", "l", "run");
+  edge("ice", "r", "api", "l", "run");
+  edge("api", "r", "cf", "l", "run");
+  edge("cf", "r", "user", "l", "run");
+  // ① subway
+  edge("sub", "r", "sprod", "l", "idle");
+  edge("sprod", "r", "tsub", "l", "idle");
+  // ② 가게 마스터
+  edge("csv", "r", "loader", "l", "run");
+  edge("loader", "r", "static", "l", "run");
+  label("parquet 직접 적재", colX(2) + 40, 471);
+  const s = pt("static", "r"), a = pt("api", "b");
+  edge("static", "r", "api", "b", "run", [[a[0], s[1]]]);
+  label("가게 join", a[0] + 10, 400);
+  edge("pg", "r", "dbz", "l", "idle");
+  edge("dbz", "r", "tcdc", "l", "idle");
+  edge("tcdc", "r", "cdcjob", "l", "idle");
+  edge("cdcjob", "r", "dim", "l", "idle");
+  // ③ 사용자 행동 로그
+  const u = pt("user", "b"), e = pt("edge", "t");
+  edge("user", "b", "edge", "r", "idle", [[u[0], pt("edge", "r")[1]]]);
+  const eb = pt("edge", "b"), rb = pt("recv", "b");
+  edge("edge", "b", "recv", "b", "idle", [[eb[0], 768], [rb[0], 768]]);
+  label("HTTPS · Tunnel (현재 502)", colX(4) + 30, 756);
+  edge("recv", "r", "tev", "l", "idle");
+  edge("tev", "r", "fev", "l", "plan");
+  edge("fev", "r", "fue", "l", "plan");
+</script>
+</body>
+</html>

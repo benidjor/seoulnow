@@ -123,7 +123,7 @@ sudo systemctl restart cloudflared
 ```
 - (로컬 macOS) `curl -s -o /dev/null -w "%{http_code}\n" https://api.seoulnow.live/api/hotspots` → 200
 - Cloudflare Pages(seoulnow) Production env: `CHILL_API_BASE=https://api.seoulnow.live` / `EVENTS_RECEIVER_BASE=https://receiver.seoulnow.live` / `RECEIVER_TOKEN` / `ANON_UA_SALT`
-- Pages 재배포 → https://seoulnow.live 지도 실데이터 + degraded 배너 소멸
+- Pages 재배포 → https://seoulnow.pages.dev 지도 실데이터 + degraded 배너 소멸 (2026-05-26 실측 URL. apex `seoulnow.live`는 미연결 — [`prod-health-check.md`](./prod-health-check.md) §5)
 - **prod 독립성 게이트**: Mac 정지/노트북 종료 후에도 지도 유지 확인 ← MVP 성공 결정적 증거
 
 ## 4. 배포 자동화 (plan Task 8)
