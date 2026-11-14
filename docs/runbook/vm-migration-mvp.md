@@ -137,6 +137,20 @@ chmod +x ~/seoulnow/infra/vm/deploy.sh
 
 ## 5. 운영 / 트러블슈팅
 - 메모리: `free -h` (80% 임계 = 19.2GB)
+- 메모리 한도 (2026-11-15 · 근거 = [`2026-11-15-vm-oom-kafka-replay.md`](../portfolio/troubleshooting/2026-11-15-vm-oom-kafka-replay.md) Issue 2)
+  - Flink 두 유닛 — `-Xmx3g` · `-XX:MaxMetaspaceSize=512m` · `MemoryHigh=4500M` · `MemoryMax=5G` (실측 힙 사용 약 1.9GB · metaspace 약 200MB)
+  - API — DuckDB `memory_limit = '1GB'` (`src/api/deps.py`)
+  - ⚠️ 유닛 파일 변경은 배포 (`infra/vm/deploy.sh`)로 반영되지 않는다. `bash infra/systemd/install-units.sh` 뒤 해당 유닛을 재시작한다.
+  - ⚠️ `.env` 에 `JAVA_TOOL_OPTIONS` 를 두지 않는다. `EnvironmentFile=` 값이 유닛의 `Environment=` 를 덮어써 힙 한도가 조용히 빠진다.
+  - 확인
+    ```bash
+    systemctl show seoulnow-bronze-silver seoulnow-silver-gold -p MemoryHigh,MemoryMax,NRestarts
+    for u in bronze-silver silver-gold; do   # anon = 캐시를 뺀 실제 사용량 · oom_kill 은 0 이어야 함
+      grep -E '^anon ' /sys/fs/cgroup/system.slice/seoulnow-$u.service/memory.stat
+      grep -E '^(high|max|oom_kill) ' /sys/fs/cgroup/system.slice/seoulnow-$u.service/memory.events
+    done
+    for p in $(pgrep java); do jcmd $p VM.flags | grep -oE "MaxHeapSize=[0-9]+"; done   # Flink 둘은 3221225472
+    ```
 - 로그: `journalctl -u seoulnow-silver-gold -f`
 - compose 상태: `docker compose ps`
 - 유닛 재시작: `sudo systemctl restart seoulnow-<name>`

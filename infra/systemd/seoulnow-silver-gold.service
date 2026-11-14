@@ -12,6 +12,11 @@ Environment=MINIO_ENDPOINT=http://localhost:9000
 Environment=LAKEKEEPER_URL=http://localhost:8181
 Environment=PYTHONPATH=src
 Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
+# 메모리 한도 (2026-11-15 실측 근거 · docs/runbook/vm-migration-mvp.md §5).
+# 값에 공백이 있어 따옴표 필수 — 없으면 systemd 가 두 번째 옵션을 버린다.
+Environment="JAVA_TOOL_OPTIONS=-Xmx3g -XX:MaxMetaspaceSize=512m"
+MemoryHigh=4500M
+MemoryMax=5G
 ExecStart=/home/ubuntu/.local/bin/uv run --extra flink python -m flink_jobs.silver_to_gold
 Restart=always
 RestartSec=10

@@ -67,3 +67,16 @@ def test_duck_cursor_calls_cursor():
     with patch.object(deps, "duck_connection", return_value=fake_conn):
         deps.duck_cursor()
     fake_conn.cursor.assert_called_once()
+
+
+def test_duck_connection_caps_memory():
+    """DuckDB 기본 상한 (RAM 80%) 대신 1GB 로 묶는다 — VM 을 Flink · Kafka 와 나눠 쓴다."""
+    from api import deps
+
+    deps.duck_connection.cache_clear()
+    try:
+        with patch.object(deps, "configure_duckdb"):
+            con = deps.duck_connection()
+        assert con.execute("SELECT current_setting('memory_limit')").fetchone()[0] == "953.6 MiB"
+    finally:
+        deps.duck_connection.cache_clear()

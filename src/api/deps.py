@@ -43,6 +43,8 @@ def duck_connection() -> duckdb.DuckDBPyConnection:
     """
     con = duckdb.connect()
     configure_duckdb(con)
+    # DuckDB 기본 상한은 RAM 의 80% — Flink · Kafka 와 VM 을 나눠 쓰므로 1GB 로 묶는다.
+    con.execute("SET memory_limit = '1GB'")
     return con
 
 
